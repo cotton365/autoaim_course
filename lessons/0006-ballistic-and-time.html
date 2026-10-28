@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0006 · 弹道与时间对齐：不动点迭代</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0006 · 深入线</p>
+<h1>弹道与时间对齐：不动点迭代</h1>
+<p class="lede">预测出“目标在命中时刻的位置”还不够：子弹要飞一段时间。这一节推导抛物线/阻力弹道，并解释为什么飞行时间是一个不动点。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：0001、0002</span><span>对应代码：<code>trajectory.cpp</code> / <code>ballistic_trajectory.hpp</code> / <code>math_tools.hpp</code></span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+推导真空弹道的二次方程，说出高/低弧怎么选；写出阻力弹道的 <code>A,B,C</code>；解释 <code>T_fly</code> 不动点为什么收敛；估算“只算一次”会差多少。
+</div>
+
+<h2>1. 真空弹道：一个二次方程</h2>
+
+<p>目标在水平距离 <code>d</code>、高差 <code>h</code>，初速 <code>v0</code>，重力 <code>g</code>。设发射角 <code>θ</code>，飞行时间：</p>
+
+<pre class="formula">T = d / (v0 cosθ)</pre>
+
+<p>竖直方向：</p>
+
+<pre class="formula">h = v0 sinθ · T - ½ g T²
+  = d tanθ - ½ g d² (1+tan²θ) / v0²</pre>
+
+<p>令 <code>u=tanθ</code>，整理成：</p>
+
+<pre class="formula">(g d² / 2v0²) u² - d u + (g d² / 2v0² + h) = 0
+
+a = g d² / (2v0²)
+b = -d
+c = a + h
+u = (-b ± √(b²-4ac)) / (2a)</pre>
+
+<p>两个解：高弧（<code>+√</code>）和低弧（<code>-√</code>）。低弧飞行时间短、弹道平，通常更适合自瞄；高弧在近距离可能打不高，远距离又飞得久。sp/SHtech 取短时间（低弧），wuhan 先取高弧、无效再低弧。</p>
+
+<figure>
+<img src="../assets/figures/ballistic_compare.png" alt="High/low arc and drag">
+<figcaption>同一目标 <code>(d,h)=(4,0.5)</code>：高弧 <code>T=4.67 s</code>，低弧 <code>T=0.176 s</code>，wuhan 的阻力模型 <code>T=0.195 s</code>。右图放大目标附近，阻力让弹道略微“抬高”才能落到同一点。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<div class="box pitfall"><span class="label">高弧陷阱</span>
+高弧解在数学上永远存在（只要判别式 ≥0），但飞行时间可能是低弧的 20 倍。如果代码“先取 p1”而没有检查时间/角度范围，远距离可能选中高抛弹道，提前量会大得离谱。
+</div>
+
+<h2>2. 阻力弹道：wuhan 的近似</h2>
+
+<p>水平方向按二次阻力，竖直方向只受重力：</p>
+
+<pre class="formula">x(t) = ln(1 + k v0 cosθ · t) / k
+z(t) = v0 sinθ · t - ½ g t²</pre>
+
+<p>由 <code>x(T)=d</code>：</p>
+
+<pre class="formula">T = (e^{kd} - 1) / (k v0 cosθ)</pre>
+
+<p>代入 <code>z(T)=h</code>，令 <code>u=tanθ</code>：</p>
+
+<pre class="formula">A = (e^{kd} - 1)/k
+C = A/v0
+B = ½ g C²
+
+B u² - A u + (B + h) = 0
+T = (e^{kd} - 1) / (k v0 cosθ)</pre>
+
+<p>这个模型只把阻力加在水平方向，竖直方向仍是真空，是一个工程近似；<code>k</code> 通常很小（0.001 量级），远距离才明显。</p>
+
+<h2>3. 飞行时间是不动点</h2>
+
+<p>命中时刻：</p>
+
+<pre class="formula">t_hit = t_now + t_latency + T_fly
+T_fly = range( p_target(t_hit) ) / (v0 cosθ)</pre>
+
+<p><code>T_fly</code> 出现在等式两边，所以是不动点。迭代：</p>
+
+<pre class="formula">T_0 = range(t_now + latency) / v0
+for k = 0..N:
+    p_k = p_target(t_now + latency + T_k)
+    T_{k+1} = range(p_k) / (v0 cosθ_k)</pre>
+
+<figure>
+<img src="../assets/figures/fixed_point.png" alt="Flight time fixed point iteration">
+<figcaption>目标以 0/2/4 m/s 接近时，<code>T_fly</code> 的迭代轨迹。2–3 次就基本收敛；4 m/s 时有一次轻微过冲，但仍在 1 ms 内。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<p>收敛速度取决于目标径向速度与弹速之比。弹速 23 m/s、目标 4 m/s，比值约 0.17，迭代 2–3 次就够；sp/wuhan 用 10 次是留余量。</p>
+
+<h2>4. “只算一次”会差多少</h2>
+
+<p>SHtech 的装甲板模型：</p>
+
+<pre class="formula">T = cal_fly_time(p_now)
+aim = p_now + v · (latency + T)</pre>
+
+<p>它假设“飞行时间内目标匀速”，但没有把 <code>aim</code> 的新位置再代回去更新 <code>T</code>。误差量级：</p>
+
+<pre class="formula">ΔT ≈ (v_target · T) / v0
+Δaim ≈ v_target · ΔT</pre>
+
+<p>目标 4 m/s、<code>T=0.15 s</code>、<code>v0=23</code>：<code>ΔT≈0.026 s</code>，<code>Δaim≈10 cm</code>。对 13.5 cm 的装甲板，这已经是一个不可忽略的偏差。所以“一次性”不是等价替换，而是用精度换计算量。</p>
+
+<h2>5. 延迟是怎么叠的</h2>
+
+<pre class="formula">sp:     t_fire = t_frame + (now - t_frame) + delay
+wuhan:  t_hit  = now + T_fly + prediction_delay
+SHtech: total  = (now - t_frame) + comm_latency + T_fly</pre>
+
+<p>三套代码都没有把“云台从当前角度转到目标角度”的时间算进 <code>t_hit</code>，而是通过“轨迹跟踪 + 开火门控”保证开枪时云台已经到位。这是控制层和预测层的分工：预测层给“命中点”，控制层判断“现在能不能打”。</p>
+
+<h2>6. MPC 参考轨迹为什么是“每个时刻的命中角”</h2>
+
+<p>wuhan/SHtech 都会采样一条参考轨迹：</p>
+
+<pre class="formula">for t in [-H/2·dt, ..., +H/2·dt]:
+    p_t = target.predict(t)
+    cp(t) = gimbal_angle_to_hit(p_t)   # 若在 t 时刻开火，云台该指哪</pre>
+
+<p>这条轨迹的横轴是“开火时刻”，纵轴是“对应的云台角”。MPC 跟踪它，等价于“让云台提前走到未来某个开火时刻所需的角”，从而在连续射击时保持超前。中心时刻取 <code>now</code> 或 <code>t_hit</code>，取决于实现。</p>
+
+<h2>7. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. 真空弹道的两个解分别对应？</p>
+<button data-choice="a" data-why="两个解都满足同一个二次方程，区别是发射角/飞行时间。">两个不同的重力值</button>
+<button data-choice="b" data-why="+√ 是高弧、-√ 是低弧；低弧飞行时间短。">高弧和低弧</button>
+<button data-choice="c" data-why="解的是发射角，不是弹速。">两个不同的弹速</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">2. 为什么 <code>T_fly</code> 要迭代？</p>
+<button data-choice="a" data-why="T_fly 与目标位置有关，目标位置又依赖 T_fly。">因为重力会变</button>
+<button data-choice="b" data-why="弹速在飞行中基本不变；迭代是因为几何耦合。">因为弹速会衰减</button>
+<button data-choice="c" data-why="命中点依赖飞行时间，飞行时间又依赖命中点。">因为命中点依赖它</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">3. “只算一次”的提前量误差主要来自？</p>
+<button data-choice="a" data-why="没有把新瞄准点代回去更新飞行时间，误差约 v_target·ΔT。">飞行时间没有闭合</button>
+<button data-choice="b" data-why="重力补偿是一次性减去的，不是主要误差源。">重力补偿算错</button>
+<button data-choice="c" data-why="坐标系变换误差是另一类问题，不是这里的重点。">坐标系没有旋转</button>
+<div class="feedback"></div>
+</div>
+
+<div class="lesson-nav">
+<a href="0005-ekf-eskf-iekf.html">← 上一课：EKF/ESKF/IEKF</a>
+<a href="../index.html">课程目录 →</a>
+</div>
+
+<div class="footer">
+数值实验：<code>assets/make_course_figures.py</code>；三项目弹道代码见主报告第 6.3 节。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

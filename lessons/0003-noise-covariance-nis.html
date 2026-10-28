@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0003 · 噪声：Q/R、马氏距离、NIS</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0003 · 基础线</p>
+<h1>噪声：Q/R、马氏距离、NIS</h1>
+<p class="lede">这一节把“噪声”从“一个数”变成“有形状的协方差”，并解释 NIS 为什么能判断滤波器是否自洽。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：协方差、高斯、χ² 分布</span><span>对应代码：三套项目的 <code>Q</code> / <code>R</code> / NIS</span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+解释 Q 和 R 分别控制什么；说出“各向异性 R”为什么长轴指向相机；手算一维 NIS；判断一个 NIS 阈值是“95% 上分位”还是“5% 下分位”。
+</div>
+
+<h2>1. 协方差不是“误差大小”，是“误差的形状”</h2>
+
+<p>一维方差只告诉你“分布有多宽”。二维协方差还告诉你“往哪个方向宽”：</p>
+
+<pre class="formula">P = [[σ_x²,     ρσ_xσ_y],
+     [ρσ_xσ_y,  σ_y²  ]]</pre>
+
+<p>它的特征向量是椭圆的轴，特征值的平方根是轴长。如果 <code>P</code> 不是对角阵，x 和 y 的误差是相关的：知道 x 偏大，就能推断 y 可能偏大。</p>
+
+<figure>
+<img src="../assets/figures/noise_anisotropy.png" alt="Anisotropic covariance ellipse">
+<figcaption>SHtech 的观测噪声 <code>R_xy = σ_r² u_r u_rᵀ + σ_t² u_t u_tᵀ</code>：长轴沿径向（指向相机），短轴沿切向。因为深度误差比切向误差大得多，椭圆被“拉长”在视线上。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<h2>2. Q 和 R：一个管“模型多不靠谱”，一个管“观测多不靠谱”</h2>
+
+<p>一维直觉：</p>
+
+<pre class="formula">K = P / (P + R)</pre>
+
+<ul>
+<li><code>R</code> 大：观测不可信 → <code>K</code> 小 → 更信预测 → 曲线更平滑，但响应慢；</li>
+<li><code>Q</code> 大：预测不可信 → <code>P</code> 大 → <code>K</code> 大 → 更信观测 → 跟踪更“活”，但更容易被噪声带跑。</li>
+</ul>
+
+<figure>
+<img src="../assets/figures/qr_gain.png" alt="Kalman gain vs R/P">
+<figcaption><code>K=P/(P+R)</code> 随 <code>R/P</code> 的变化。调参时不要孤立地看 Q 或 R，要看它们的<strong>比值</strong>。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<h3>Q 里的 dt⁴/4、dt³/2、dt² 从哪来</h3>
+
+<p>假设加速度是白噪声，方差 <code>σ_a²</code>，在 <code>dt</code> 内近似常数：</p>
+
+<pre class="formula">p⁺ = p + v dt + 0.5 a dt²
+v⁺ = v + a dt
+
+G = [0.5 dt², dt]ᵀ
+Q = G σ_a² Gᵀ = σ_a² [[dt⁴/4, dt³/2],
+                       [dt³/2, dt²  ]]</pre>
+
+<p>这就是 sp/SHtech 的 <code>Q</code> 块。wuhan 多做了一步：把车体系的 <code>σ_a²</code> 旋转到世界系，<code>Q_acc_odom = R Q_body Rᵀ</code>，因为加速度噪声是相对车体的（前后/左右/上下），不是相对世界的。</p>
+
+<h2>3. 马氏距离：把“误差”除以“不确定性”</h2>
+
+<p>欧氏距离 <code>||x - μ||</code> 把所有方向同等看待。马氏距离：</p>
+
+<pre class="formula">d_M(x) = sqrt( (x-μ)ᵀ Σ⁻¹ (x-μ) )</pre>
+
+<p>它先把空间“白化”：沿方差大的方向，同样的偏差更“正常”；沿方差小的方向，一点点偏差就很异常。NIS 就是创新 <code>y = z - h(x⁻)</code> 的马氏距离平方：</p>
+
+<pre class="formula">NIS = yᵀ S⁻¹ y,   S = H P⁻ Hᵀ + R</pre>
+
+<p>如果模型和噪声都设对了，<code>NIS ~ χ²(m)</code>，<code>m</code> 是观测维度。注意：<strong>NIS 的期望是 m，不是 0</strong>。4 维观测，健康时 NIS 平均约 4。</p>
+
+<figure>
+<img src="../assets/figures/kf_nis_nees.png" alt="NIS and NEES Monte Carlo">
+<figcaption>蒙特卡洛：NIS/NEES 应该落在 χ² 的 95% 区间内。如果长期贴边或越界，说明 Q/R 设错，或者模型漏了状态。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+</figure>
+
+<h2>4. 一个具体的阈值陷阱</h2>
+
+<p>sp 的 EKF 里：</p>
+
+<pre class="formula">constexpr double nis_threshold = 0.711;   // 注释：自由度=4，置信水平95%</pre>
+
+<p>4 自由度的 χ² 分布：</p>
+
+<pre class="formula">5% 下分位   ≈ 0.711
+95% 上分位  ≈ 9.488
+均值        = 4</pre>
+
+<p><code>0.711</code> 是“只有 5% 的概率低于它”的下分位，不是 95% 上分位。如果用 <code>NIS > 0.711</code> 判失败，一个<strong>健康</strong>的滤波器大约有 95% 的帧会被判失败。这不一定代表实际代码一定出错（可能 <code>R</code> 被放大，NIS 长期偏小），但注释和数值明显对不上，值得核对。</p>
+
+<figure>
+<img src="../assets/figures/proj_nis_threshold.png" alt="Chi-square threshold">
+<figcaption>χ²₄ 的概率密度：0.711 在左尾（5% 下分位），9.49 在右尾（95% 上分位）。判“异常”应该用右尾。图由 <code>verify/verify_projects.py</code> 生成。</figcaption>
+</figure>
+
+<h2>5. 三套代码的 R 为什么不一样</h2>
+
+<table>
+<tr><th>项目</th><th>R 的形式</th><th>物理直觉</th></tr>
+<tr><td>sp</td><td><code>diag(4e-3, 4e-3, log|Δθ|+1, log|pitch|+1/200+0.09)</code></td><td>斜视角越大，PnP 深度越不可信；距离噪声随俯仰略增</td></tr>
+<tr><td>wuhan</td><td><code>diag(σ_angle²/2, σ_px²/2, σ_px²/2, σ_len²/2)</code>，<code>σ_px∝L_px</code></td><td>灯条越长（越近），像素噪声绝对量越大；角度噪声固定</td></tr>
+<tr><td>SHtech</td><td><code>σ_r²u_ru_rᵀ + σ_t²u_tu_tᵀ</code>，<code>σ_r=0.2d</code>，<code>σ_t=0.0628d</code></td><td>径向深度误差 20%，切向是 3.6° 角度误差乘距离</td></tr>
+</table>
+
+<p>三种做法的共同点：<strong>R 不是拍脑袋的常数，而是随距离/视角/像素长度变化的</strong>。这也是为什么同一个 <code>Q</code> 在不同距离下表现不一样——误差的“形状”变了。</p>
+
+<h2>6. NEES：检查状态估计是否自洽</h2>
+
+<p>NIS 检查“观测残差”，NEES 检查“状态误差”：</p>
+
+<pre class="formula">NEES = (x - x̂)ᵀ P⁻¹ (x - x̂)</pre>
+
+<p>真值未知时没法直接算 NEES，只能用蒙特卡洛仿真。如果 NEES 长期大于 χ² 上界，说明 <code>P</code> 太小（滤波器过度自信）；长期小于下界，说明 <code>P</code> 太大（滤波器不够自信）。这比“看曲线抖不抖”客观得多。</p>
+
+<div class="box mathbox"><span class="label">数值后验</span>
+2D 位置观测、4D 状态、200 次 × 50 步：NIS 均值 <strong>1.97</strong>（df=2），NEES 均值 <strong>3.85</strong>（df=4），
+95% 覆盖率分别为 <strong>95.07%</strong> / <strong>95.53%</strong>，都落在 χ² 带内。sp 的 <code>0.711</code> 是 χ²₄ 的 <strong>5% 下分位</strong>；
+健康滤波器有 <strong>95%</strong> 的帧会超过它。见 <code>verify/verify_kf.py</code> 和 <code>verify/projects_report.md</code>。
+</div>
+
+<h2>7. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. 4 维观测、滤波器完全自洽时，NIS 的期望是？</p>
+<button data-choice="a" data-why="NIS 是马氏距离平方，期望等于观测维度，不是 0。">0</button>
+<button data-choice="b" data-why="χ²(m) 的期望是 m，m=4。">4</button>
+<button data-choice="c" data-why="1 是 χ²(1) 的期望；这里观测维度是 4。">1</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">2. SHtech 的 <code>R</code> 椭圆长轴为什么指向相机？</p>
+<button data-choice="a" data-why="长轴对应方差大的方向；切向误差比径向小。">因为切向误差更大</button>
+<button data-choice="b" data-why="R 不随目标旋转；它由视线方向构造。">因为目标在旋转</button>
+<button data-choice="c" data-why="径向是深度方向，σ_r=0.2d 远大于切向 σ_t=0.0628d，所以长轴沿径向。">因为深度误差更大</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">3. 把 <code>Q</code> 调得很小，最直接的后果是？</p>
+<button data-choice="a" data-why="P 越来越小，K 越来越小，滤波器越来越不信观测。">增益变小，跟踪变迟钝</button>
+<button data-choice="b" data-why="Q 小不会让 K 变大；它让 P 变小。">增益变大，跟踪更抖</button>
+<button data-choice="c" data-why="Q 不影响观测噪声 R。">观测噪声变大</button>
+<div class="feedback"></div>
+</div>
+
+<div class="lesson-nav">
+<a href="0002-pnp-and-frames.html">← 上一课：PnP</a>
+<a href="0004-three-pipelines.html">下一课：三套预测链路 →</a>
+</div>
+
+<div class="footer">
+数值实验：<code>verify/verify_kf.py</code>（NIS/NEES）、<code>verify/verify_projects.py</code>（χ² 阈值）。主要来源：Labbe；Maybeck；Bar-Shalom 的跟踪教材。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

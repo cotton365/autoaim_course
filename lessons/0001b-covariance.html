@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0001 补充 · 协方差：定义、矩阵、椭圆与传播</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0001 · 补充</p>
+<h1>协方差：从“一起变”到 <span style="white-space:nowrap">P = E[(x−μ)(x−μ)ᵀ]</span></h1>
+<p class="lede">这一页只做一件事：把“协方差”从定义、到矩阵、到椭圆、到 KF 里的 <code>P/Q/R</code> 讲清楚。只需要高中概率：期望、方差、加权平均。</p>
+<p class="meta"><span>预计 25 分钟</span><span>先修：Lesson 0001 前半</span><span>对应代码：三套项目的 <code>P/Q/R</code></span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+用一句话说出协方差的定义；手算 5 个点的协方差；写出 2×2 协方差矩阵并解释每个元素；说清“为什么 <code>P</code> 是椭圆”“为什么 <code>y=Ax+b</code> 后 <code>P</code> 变成 <code>A P Aᵀ</code>”。
+</div>
+
+<h2>1. 只用三件高中学过的事</h2>
+
+<p><strong>随机变量</strong> <code>X</code>：取值不确定，但每个值有概率。比如掷骰子，<code>X</code> 可以取 1 到 6。</p>
+
+<p><strong>期望</strong> <code>E[X]</code>：按概率加权的平均。</p>
+
+<pre class="formula">E[X] = Σ_i x_i · Pr(X = x_i)
+
+例：均匀骰子 E[X] = (1+2+3+4+5+6)/6 = 3.5</pre>
+
+<p>期望是线性的，这一条后面一直用：</p>
+
+<pre class="formula">E[aX + b] = a E[X] + b
+E[X + Y]  = E[X] + E[Y]</pre>
+
+<p><strong>方差</strong> <code>Var(X)</code>：偏离均值有多远，用“平方的平均”来量。</p>
+
+<pre class="formula">Var(X) = E[(X − E[X])²] = E[X²] − (E[X])²
+σ_X    = sqrt(Var(X))        # 标准差，和 X 同单位</pre>
+
+<div class="box mathbox"><span class="label">矩阵符号恐惧症？</span>
+这一页只需要 2×2 矩阵，规则就三条：<br>
+① 列向量 <code>(X, Y)ᵀ = [X; Y]</code>，转置 <code>ᵀ</code> 就是把一行变一列；<br>
+② 2×2 乘 2×1：<code>[a b; c d]·[x; y] = [ax+by; cx+dy]</code>；<br>
+③ <code>E[·]</code> 对矩阵/向量是“每个元素分别求期望”。<br>
+不需要会解线性方程组，也不需要会证明特征值。
+</div>
+
+<h2>2. 协方差的定义：两个“偏差”的乘积的平均</h2>
+
+<div class="box mathbox"><span class="label">定义（先背这一句）</span>
+<code>Cov(X, Y) = E[(X − E[X]) · (Y − E[Y])]</code><br>
+也就是：<strong>X 的偏差</strong>乘以<strong>Y 的偏差</strong>，再按概率求平均。
+</div>
+
+<p>把 <code>dx = X − E[X]</code>、<code>dy = Y − E[Y]</code> 看成“这次 X/Y 比平均高多少”。</p>
+
+<ul>
+<li><code>dx</code> 和 <code>dy</code> <strong>同号</strong>（同高或同低）→ 乘积为正；</li>
+<li><code>dx</code> 和 <code>dy</code> <strong>异号</strong>（一个高一个低）→ 乘积为负；</li>
+<li>正负差不多抵消 → 协方差接近 0。</li>
+</ul>
+
+<figure>
+<img src="../assets/figures/cov_product.png" alt="Covariance as average signed rectangle area">
+<figcaption>把每个点相对均值的 <code>dx</code>、<code>dy</code> 乘起来：一、三象限（蓝）贡献正，二、四象限（红）贡献负。协方差就是这些“带符号矩形面积”的平均。图由 <code>assets/make_covariance_figures.py</code> 生成。</figcaption>
+</figure>
+
+<p>如果 <code>X</code> 和 <code>Y</code> 是离散的，写成加权和就是：</p>
+
+<pre class="formula">Cov(X,Y) = Σ_i Σ_j (x_i − μ_X)(y_j − μ_Y) · Pr(X=x_i, Y=y_j)
+
+μ_X = E[X],  μ_Y = E[Y]</pre>
+
+<p>如果手上是 <code>N</code> 个等概率样本，就变成“平均”：</p>
+
+<pre class="formula">Cov(X,Y) ≈ (1/N) Σ_{k=1..N} (x_k − x̄)(y_k − ȳ)</pre>
+
+<div class="box win"><span class="label">三个立刻能用的性质</span>
+① <code>Cov(X,X) = Var(X)</code>：自己和自己“一起变”就是方差。<br>
+② <code>Cov(X,Y) = Cov(Y,X)</code>：乘法交换，协方差对称。<br>
+③ <code>Cov(aX+b, cY+d) = ac · Cov(X,Y)</code>：平移 <code>b,d</code> 不影响；缩放 <code>a,c</code> 直接乘进去。
+</div>
+
+<h3>2.1 等价公式：E[XY] − E[X]E[Y]</h3>
+
+<p>把括号展开，再用期望的线性：</p>
+
+<pre class="formula">E[(X−μ_X)(Y−μ_Y)]
+= E[XY − Xμ_Y − μ_X Y + μ_X μ_Y]
+= E[XY] − μ_Y E[X] − μ_X E[Y] + μ_X μ_Y
+= E[XY] − μ_X μ_Y</pre>
+
+<p>所以：</p>
+
+<pre class="formula">Cov(X,Y) = E[XY] − E[X]·E[Y]</pre>
+
+<p>这个式子手算最快：先算“乘积的平均”，再减去“平均的乘积”。</p>
+
+<div class="box pitfall"><span class="label">协方差 ≠ 相关系数</span>
+协方差带单位：<code>X</code> 是米、<code>Y</code> 是秒，协方差就是“米·秒”，数值大小会随单位变。<br>
+相关系数把它归一化：
+<code>ρ = Cov(X,Y) / (σ_X σ_Y)</code>，范围 <code>[−1, 1]</code>，只看“线性相关有多强”。<br>
+<code>ρ=1</code> 完全同向，<code>ρ=−1</code> 完全反向，<code>ρ=0</code> 没有线性相关（不一定独立）。
+</div>
+
+<h2>3. 手算 5 个点：把定义走一遍</h2>
+
+<p>拿 5 个点（可以想成 5 帧里目标的 <code>x/y</code> 位置）：</p>
+
+<pre class="formula">(1,2), (2,1), (3,4), (4,3), (5,5)</pre>
+
+<p>先算均值：<code>x̄ = 3</code>，<code>ȳ = 3</code>。再算每个点的偏差和乘积：</p>
+
+<table>
+<tr><th>点</th><th>x</th><th>y</th><th>dx = x−3</th><th>dy = y−3</th><th>dx·dy</th></tr>
+<tr><td>1</td><td>1</td><td>2</td><td>−2</td><td>−1</td><td>+2</td></tr>
+<tr><td>2</td><td>2</td><td>1</td><td>−1</td><td>−2</td><td>+2</td></tr>
+<tr><td>3</td><td>3</td><td>4</td><td>0</td><td>+1</td><td>0</td></tr>
+<tr><td>4</td><td>4</td><td>3</td><td>+1</td><td>0</td><td>0</td></tr>
+<tr><td>5</td><td>5</td><td>5</td><td>+2</td><td>+2</td><td>+4</td></tr>
+<tr><td><strong>和</strong></td><td></td><td></td><td></td><td></td><td><strong>+8</strong></td></tr>
+</table>
+
+<p>样本协方差（分母 <code>N−1 = 4</code>）：</p>
+
+<pre class="formula">Cov(x,y) = 8 / 4 = 2.0
+
+Var(x) = (4+1+0+1+4)/4 = 10/4 = 2.5
+Var(y) = (1+4+1+0+4)/4 = 10/4 = 2.5
+
+ρ = 2.0 / (sqrt(2.5)·sqrt(2.5)) = 2.0/2.5 = 0.8</pre>
+
+<p>所以这 5 个点的协方差矩阵是：</p>
+
+<pre class="formula">P = [[Var(x), Cov(x,y)],
+     [Cov(x,y), Var(y)   ]]
+  = [[2.5, 2.0],
+     [2.0, 2.5]]</pre>
+
+<div class="box pitfall"><span class="label">为什么用 E[XY]−E[X]E[Y] 会得到 1.6，而这里是 2.0？</span>
+因为分母不同。<br>
+<code>E[XY]−E[X]E[Y]</code> 用的是“除以 N”的总体/样本矩：<code>8/5 = 1.6</code>。<br>
+这里用的是“除以 N−1”的<strong>无偏样本协方差</strong>：<code>8/4 = 2.0</code>。<br>
+如果这 5 个点就是全部总体，用 1.6；如果它们是从更大总体里抽的样本，用 2.0 更合适。N 很大时两者几乎一样。
+</div>
+
+<p><strong>为什么是 N−1？</strong> 因为你先用样本均值 <code>x̄</code> 代替了真实均值，5 个偏差满足 <code>Σdx=0</code>，只要知道前 4 个，第 5 个就确定了——只剩 <code>N−1</code> 个“独立信息”。除以 <code>N−1</code> 得到的估计才是无偏的。高中阶段可以先记“样本协方差分母用 N−1”，不必深究证明。</p>
+
+<h2>4. 协方差矩阵：把一堆协方差装进一个矩阵</h2>
+
+<p>如果有两个变量 <code>X,Y</code>，把它们排成列向量：</p>
+
+<pre class="formula">x = [X; Y]          μ = [E[X]; E[Y]]
+dx = x − μ = [X−E[X]; Y−E[Y]]</pre>
+
+<div class="box mathbox"><span class="label">定义（协方差矩阵）</span>
+<code>P = E[(x − μ)(x − μ)ᵀ]</code><br>
+先做“列向量 × 行向量”的外积，得到一个 2×2 矩阵；再对每个元素求期望。
+</div>
+
+<p>把外积写开，初中/高中矩阵乘法就够：</p>
+
+<pre class="formula">(x−μ)(x−μ)ᵀ = [dx; dy] · (dx, dy)
+              = [[dx·dx, dx·dy],
+                 [dy·dx, dy·dy]]
+
+P = E[ ... ] = [[E[dx²],   E[dx·dy]],
+                [E[dy·dx], E[dy²] ]]
+
+  = [[Var(X),  Cov(X,Y)],
+     [Cov(X,Y), Var(Y) ]]</pre>
+
+<p>所以：</p>
+
+<ul>
+<li><strong>对角线</strong>是各自的方差（自己和自己）；</li>
+<li><strong>非对角线</strong>是协方差（X 和 Y 一起变的程度）；</li>
+<li>矩阵一定<strong>对称</strong>：<code>P[0,1] = P[1,0]</code>。</li>
+</ul>
+
+<figure>
+<img src="../assets/figures/cov_scatter.png" alt="Positive, negative and zero covariance">
+<figcaption>协方差的符号：正 → 点云向右上/左下倾斜；负 → 向右下/左上倾斜；接近 0 → 圆/轴对齐的椭圆。图由 <code>assets/make_covariance_figures.py</code> 生成。</figcaption>
+</figure>
+
+<div class="box mathbox"><span class="label">“半正定”是什么意思（可选）</span>
+对任意方向 <code>a=[a1; a2]</code>，<code>aᵀ P a</code> 就是“把点投影到 a 方向后的方差”，方差不可能为负，所以
+<code>aᵀ P a ≥ 0</code>。几何上：椭圆的轴长平方（特征值）都 ≥ 0，不会出现“虚轴”。这个性质在 KF 里保证 <code>P</code> 不会变成负方差。
+</div>
+
+<h2>5. 几何：为什么 P 是一个椭圆</h2>
+
+<p>二维高斯分布的点云，等高线是椭圆。协方差矩阵决定了椭圆的<strong>方向</strong>和<strong>胖瘦</strong>。对 <code>P</code> 做特征分解：</p>
+
+<pre class="formula">P = V · Λ · Vᵀ
+
+V = [v1  v2]      # 两个互相垂直的方向（特征向量）：P·v_i = λ_i·v_i
+Λ = diag(λ1, λ2)  # 对角矩阵；λ_i 是“该方向的方差”（特征值）
+
+椭圆在 v1 方向的半轴长 = sqrt(λ1)
+椭圆在 v2 方向的半轴长 = sqrt(λ2)</pre>
+
+<p><code>V</code> 的列是单位向量，所以 <code>Vᵀ</code> 就是 <code>V</code> 的逆；这一步只是把坐标旋转到椭圆轴上。不需要会手算特征值，先记住几何意义：<strong>特征向量 = 椭圆轴的方向；特征值 = 轴长的平方</strong>。1σ 椭圆取 <code>c=1</code>，2σ 取 <code>c=2</code>。</p>
+
+<figure>
+<img src="../assets/figures/cov_ellipse_axes.png" alt="Covariance ellipse axes from eigen-decomposition">
+<figcaption>上一节 5 个点的协方差椭圆：<code>P=[[2.5,2],[2,2.5]]</code>，特征值 4.5 和 0.5，轴长 2.12 和 0.707。实线是 1σ，虚线是 2σ；箭头是特征向量。图由 <code>assets/make_covariance_figures.py</code> 生成。</figcaption>
+</figure>
+
+<p>三个典型情况：</p>
+
+<table>
+<tr><th>协方差</th><th>椭圆</th><th>直觉</th></tr>
+<tr><td><code>Cov &gt; 0</code></td><td>向右上倾斜</td><td>X 大时 Y 也倾向大</td></tr>
+<tr><td><code>Cov &lt; 0</code></td><td>向右下倾斜</td><td>X 大时 Y 倾向小</td></tr>
+<tr><td><code>Cov ≈ 0</code></td><td>轴对齐（若方差相等则是圆）</td><td>没有线性同向/反向</td></tr>
+</table>
+
+<p>相关系数 <code>ρ</code> 越接近 ±1，椭圆越“扁”（点几乎在一条线上）；<code>ρ≈0</code> 时最“圆”。</p>
+
+<h2>6. 传播：<code>y = Ax + b</code> 后 <code>P</code> 变成 <code>A P Aᵀ</code></h2>
+
+<p>这就是前面那条 <code>Cov(aX+b, cY+d) = ac·Cov(X,Y)</code> 的矩阵版：<code>y</code> 的每个分量都是 <code>x</code> 的线性组合，逐项套用该性质即可。</p>
+
+<pre class="formula">E[y] = A E[x] + b
+Cov(y) = A Cov(x) Aᵀ</pre>
+
+<p><code>b</code> 只是平移，不影响协方差。KF 里的 <code>P⁻ = F P Fᵀ + Q</code>、<code>S = H P Hᵀ + R</code> 就是这一步再加噪声。</p>
+
+<figure>
+<img src="../assets/figures/cov_transform.png" alt="Covariance under linear transform">
+<figcaption>输入是单位协方差（圆），经过 <code>A</code> 后变成斜椭圆；形状由 <code>A Aᵀ</code> 决定，<code>b</code> 只移动中心。图由 <code>assets/make_covariance_figures.py</code> 生成。</figcaption>
+</figure>
+
+<h2>7. 回到 KF：P、Q、R 分别是谁的协方差</h2>
+
+<table>
+<tr><th>符号</th><th>是谁的协方差</th><th>直觉</th></tr>
+<tr><td><code>P</code></td><td>估计误差 <code>x − x̂</code> 的协方差</td><td>“我现在有多不确定”</td></tr>
+<tr><td><code>Q</code></td><td>过程噪声 <code>w</code> 的协方差</td><td>“模型有多不靠谱”</td></tr>
+<tr><td><code>R</code></td><td>观测噪声 <code>v</code> 的协方差</td><td>“传感器有多不靠谱”</td></tr>
+</table>
+
+<p>一维 KF 的后验方差，可以完全用这一页的代数推出来：</p>
+
+<pre class="formula">K  = P⁻ / (P⁻ + R)
+P⁺ = (1 − K) P⁻
+   = P⁻ − P⁻²/(P⁻+R)
+   = P⁻R/(P⁻+R)
+
+所以：
+1/P⁺ = 1/P⁻ + 1/R</pre>
+
+<p>这就是“两个信息源的精度相加”：先验的精度 <code>1/P⁻</code>，观测的精度 <code>1/R</code>，融合后的精度是两者之和。协方差越大，精度越小，越不被信任。</p>
+
+<p>多维版本长这样（这一页不要求推导，只要知道每个字母是协方差）：</p>
+
+<pre class="formula">S = H P⁻ Hᵀ + R        # 观测空间的创新协方差
+K = P⁻ Hᵀ S⁻¹          # 增益
+P⁺ = (I − K H) P⁻ (I − K H)ᵀ + K R Kᵀ</pre>
+
+<figure>
+<img src="../assets/figures/kf_cov_ellipse.png" alt="Kalman update covariance ellipse">
+<figcaption>KF 更新就是“先验椭圆”和“观测能约束的方向”求交：椭圆沿着观测方向变窄，另一个方向几乎不变。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+</figure>
+
+<p>再往前一步，<strong>马氏距离</strong>就是把“椭圆”拉成“圆”再量距离：</p>
+
+<pre class="formula">d_M² = (x − μ)ᵀ P⁻¹ (x − μ)</pre>
+
+<p>如果 <code>P</code> 很大（很不确定），同样的偏差算出来的 <code>d_M</code> 就小；如果 <code>P</code> 很小（很确定），一点偏差就很“异常”。NIS 就是用观测空间的 <code>S</code> 做同样的事。</p>
+
+<h2>8. 一页总结</h2>
+
+<pre class="formula">定义：Cov(X,Y) = E[(X−EX)(Y−EY)]
+矩阵：P = E[(x−μ)(x−μ)ᵀ]
+      = [[Var(X), Cov(X,Y)],
+         [Cov(X,Y), Var(Y)]]
+椭圆：P = VΛVᵀ，轴长 = sqrt(λ)
+传播：y = Ax+b → Cov(y) = A P Aᵀ
+KF：  P⁻ = F P Fᵀ + Q
+      S  = H P Hᵀ + R
+      1/P⁺ = 1/P⁻ + 1/R   （一维）</pre>
+
+<p>一句话：<strong>协方差不是“误差大小”，是“不确定性的形状”</strong>；<code>P/Q/R</code> 是三个不同来源的形状。</p>
+
+<h2>9. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. <code>Cov(X, X)</code> 等于什么？</p>
+<button data-choice="a" data-why="协方差是偏差乘积的平均；X 和自己相乘就是偏差平方。">0</button>
+<button data-choice="b" data-why="Cov(X,X)=E[(X−EX)²]=Var(X)。">Var(X)</button>
+<button data-choice="c" data-why="标准差是方差的平方根，少了一个平方。">σ_X</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">2. 如果 <code>Cov(X,Y) &gt; 0</code>，点云椭圆通常往哪倾斜？</p>
+<button data-choice="a" data-why="X 大时 Y 也倾向大，椭圆向右上倾斜。">右上</button>
+<button data-choice="b" data-why="右下对应负协方差。">右下</button>
+<button data-choice="c" data-why="轴对齐通常对应协方差接近 0。">水平</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">3. <code>y = Ax + b</code> 中，<code>b</code> 对 <code>Cov(y)</code> 的影响是？</p>
+<button data-choice="a" data-why="b 只是平移，偏差 x−μ 不变。">把协方差放大 b 倍</button>
+<button data-choice="b" data-why="b 不改变形状，只改变中心。">把协方差加上 b</button>
+<button data-choice="c" data-why="平移不改变“离均值多远”，所以协方差不变。">没有影响</button>
+<div class="feedback"></div>
+</div>
+
+<div class="box win"><span class="label">下一节</span>
+协方差是“形状”，PnP 是“怎么从像素量出这个形状的观测”。下一课：<a href="0002-pnp-and-frames.html">PnP：从四个像素到世界坐标</a>。
+</div>
+
+<div class="lesson-nav">
+<a href="0001-kf-from-gaussian.html">← 回到 Lesson 0001</a>
+<a href="0002-pnp-and-frames.html">下一课：PnP →</a>
+</div>
+
+<div class="footer">
+数值核验：<code>verify/verify_covariance.py</code>（5 点手算、蒙特卡洛 <code>Cov(Ax)=A Aᵀ</code>）。
+图：<code>assets/make_covariance_figures.py</code>。
+主要来源：Labbe, <em>Kalman and Bayesian Filters in Python</em>；Maybeck, <em>Stochastic Models, Estimation, and Control</em>。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

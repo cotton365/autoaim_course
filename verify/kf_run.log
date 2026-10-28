@@ -1,0 +1,54 @@
+
+=== 1. 1-D KF ===
+analytic: mu=0.79999999999999993  var=0.33333333333333331
+KF      : mu=0.79999999999999993  var=0.33333333333333337  K=0.66666666666666663
+abs err : mean=0.000e+00  var=5.551e-17  max=5.551e-17
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_prior_posterior.png
+
+=== 2. 2-D covariance update ===
+S=2.2999999999999998  K=[0.86956521739130443, 0.34782608695652178]
+P+ = [[0.26086956521739113, 0.10434782608695647], [0.10434782608695647, 0.72173913043478255]]
+x+ = [0.86956521739130443, 0.34782608695652178]
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_cov_ellipse.png
+
+=== 3. NIS / NEES ===
+mean NIS=1.9687603827 (df=2), bounds=[0.05063561596857975, 7.377758908227871], coverage=0.9507000000
+mean NEES=3.8519049614 (df=4), bounds=[0.4844185570879299, 11.143286781877796], coverage=0.9553000000
+per-step NIS mean range [1.614160, 2.322036]
+per-step NEES mean range [3.589676, 4.090762]
+cross-check chi2_4 5%= 0.710723021397, 95%= 9.487729036781; sp_vision_25 threshold 0.711 is the 5% lower quantile.
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_nis_nees.png
+
+=== 4a. Scalar IEKF ===
+K=0.5, correct posterior=0.5
+ k | EKF | standard IEKF | SHtech sign
+ 0 | 0.000000000000 | 0.000000000000 | 0.000000000000
+ 1 | 0.500000000000 | 0.500000000000 | 0.500000000000
+ 2 | 0.500000000000 | 0.500000000000 | 0.000000000000
+ 3 | 0.500000000000 | 0.500000000000 | 0.500000000000
+ 4 | 0.500000000000 | 0.500000000000 | 0.000000000000
+ 5 | 0.500000000000 | 0.500000000000 | 0.500000000000
+SHtech 2-cycle: odd=0.5, even=0; algebraic fixed point=0.25
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_iekf_scalar.png
+
+=== 4b. Range-bearing 100-run Monte Carlo ===
+method   firstRMSE timeRMSE finalPosRMSE finalVelRMSE medianFinal meanIters
+ekf      0.574227 0.219882     0.159391     0.282822    0.134431    1.0000
+iekf     0.375111 0.200066     0.158986     0.282742    0.136727    4.0643
+shtech  60.453136 97.158937    23.210411    33.460098   21.475628    5.0000
+prior position RMSE=5.087698
+  ekf: 0.574227, 0.574227, 0.574227, 0.574227, 0.574227
+  iekf: 0.574227, 0.374594, 0.375110, 0.375111, 0.375111
+  shtech: 0.574227, 10.465763, 11.600720, 32.819540, 60.453136
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_iekf.png
+
+=== 5. ESKF / SO(3) ===
+inject/boxminus max err=1.243e-14; Log(Exp) max err=1.199e-14
+100-step: ESKF pos err=0.298977, naive pos err=2.521118
+100-step: ESKF ori err=0.111803, naive ori err=0.915242 rad
+100-step: Ppos trace ESKF=0.253099, naive=0.416286; Pori trace ESKF=0.030300, naive=0.030300
+naive unwrapped |phi|=8.046422 rad; true rotation=7.071068 rad
+[figure] /home/zh/RM/autoaim_course/assets/figures/kf_eskf.png
+
+wrote /home/zh/RM/autoaim_course/verify/kf_results.json
+ALL CHECKS PASSED

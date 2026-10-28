@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0004 · 三套预测链路：同一骨架的三种参数化</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0004 · 项目线</p>
+<h1>三套预测链路：同一骨架的三种参数化</h1>
+<p class="lede">这一节把前面的 KF/PnP 拼成完整链路，对照 sp_vision_25、wuhan、SHtech 三套代码：它们都在估同一辆车，只是“状态怎么摆、观测怎么量、时间怎么推”不同。</p>
+<p class="meta"><span>预计 35 分钟</span><span>先修：0001–0003</span><span>主报告：<code>三项目自瞄预测对照.md</code></span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+画出三套代码的预测流程图；说出它们各自的状态维数、观测维数、滤波器类型；解释为什么同一辆车会有三种不同的“世界系/速度”含义。
+</div>
+
+<h2>1. 同一辆车，三种“状态摆放”</h2>
+
+<p>三套代码都假设目标是一个刚体，4 块（前哨站 3 块）装甲板按固定角度分布：</p>
+
+<pre class="formula">p_i = c + R(θ) · ( -r_i cosφ_i, -r_i sinφ_i, Δz_i )
+φ_i = i · 2π / N</pre>
+
+<figure>
+<img src="../assets/figures/armor_geometry.png" alt="Armor layout for N=4 and N=3">
+<figcaption>N=4 与 N=3 的装甲板布局。<code>p_i</code> 在车心到装甲板的方向上取负号，是因为 θ 定义为“装甲板朝向车心”的方向；不同代码的符号约定略有差异，读代码时要先确认。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<table>
+<tr><th>项目</th><th>状态</th><th>维数</th><th>姿态</th><th>速度的含义</th></tr>
+<tr><td>sp</td><td><code>[x,vx,y,vy,z,vz,θ,ω,r,l,h]</code></td><td>11</td><td>单 yaw</td><td>相对云台（世界原点在云台）</td></tr>
+<tr><td>wuhan</td><td><code>[cx,vcx,cy,vcy,cz,vcz,rot_z,ω,log r1,log r2,h,rot_y,rot_x]</code></td><td>13</td><td>SO(3)</td><td>绝对 odom；瞄准前减云台速度</td></tr>
+<tr><td>SHtech</td><td><code>[y,vy,x,vx,z,vz,θ,ω,r,l,h]</code></td><td>11</td><td>单 yaw</td><td>相对 IMU（世界原点在 IMU）</td></tr>
+</table>
+
+<p>注意 SHtech 的状态顺序是 <code>y</code> 在前，不是 <code>x</code> 在前。这不是小事：它的 <code>H</code> 矩阵列顺序、<code>R</code> 的 XY 块都跟着这个顺序走。</p>
+
+<h2>2. 三条时间轴</h2>
+
+<figure>
+<img src="../assets/figures/timeline.png" alt="Three prediction timelines">
+<figcaption>三条链路都在算同一个 <code>t_hit = t_now + latency + T_fly</code>，但 sp/wuhan 用不动点迭代，SHtech 只算一次。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<p>把时间轴拆开看：</p>
+
+<pre class="formula">sp:     frame t_k → track(t_k) → t_now → +delay → t_fire → +T_fly(iterate) → t_hit
+wuhan:  frame t_k → track → buffer → 1kHz predict(t_now) → +T_fly(iterate)+delay → t_hit
+SHtech: frame t_k → track → t_now → +(now-t_k)+latency+T_fly(one shot) → t_hit</pre>
+
+<p>“迭代”不是强迫症：<code>T_fly</code> 取决于命中点，命中点又取决于 <code>T_fly</code>。目标横向速度 4 m/s 时，一次近似可能差几厘米；迭代 2–3 次就收敛到毫米级。</p>
+
+<h2>3. sp_vision_25：PnP 球坐标 + 11 维 EKF</h2>
+
+<pre class="formula">观测 z = [ atan2(y,x), atan2(z,√(x²+y²)), √(x²+y²+z²), θ_i ]
+
+H = blkdiag(J_ypd, 1) · J_geom
+
+J_geom 的非零块：
+  ∂p/∂c = I
+  ∂p/∂θ = ( r sinθ, -r cosθ, 0 )
+  ∂p/∂r = ( -cosθ, -sinθ, 0 )
+  ∂p/∂l = ( -cosθ, -sinθ, 0 )   (仅 i=1,3)
+  ∂p/∂h = ( 0, 0, 1 )           (仅 i=1,3)</pre>
+
+<p>它的更新是标准 EKF：在 <code>x⁻</code> 处解析线性化，一次更新。优点是快、可解释；缺点是 PnP 的深度/姿态噪声直接进滤波器，靠经验 <code>R</code> 压。</p>
+
+<p>代码：<code>target.cpp:187</code>（update）、<code>target.cpp:280</code>（H）、<code>aimer.cpp:32</code>（预测+不动点）。</p>
+
+<h2>4. wuhan：SO(3) ESKF + 灯条图像投影</h2>
+
+<pre class="formula">状态 x = [c, v, rot(3), ω, log r1, log r2, h]
+
+预测：
+  c ← c + v dt
+  R ← R · Exp([0,0,ω dt])
+
+观测（每条灯条 4 维）：
+  T_armor = T_car · T_armor_in_car
+  u = π(K, D, T_cam⁻¹ T_armor P)
+  z = [ atan2(Δu_x, Δu_y), center_x, center_y, ||Δu|| ]</pre>
+
+<p>它不在 PnP 位姿上滤波，而是把“当前状态下的装甲板灯条应该投到哪”和“实际检测到的灯条端点”做残差。好处是：单灯条也能用、不被 PnP 深度噪声带偏；坏处是：投影非线性强，<code>H</code> 只能数值求，计算量大。</p>
+
+<p>更新是批量的：一帧里所有装甲板 × 两条灯条 + 单板深度差，拼成一个大的 <code>z/h/H/R</code>，迭代 5 次。姿态用右乘注入：<code>R ← R·Exp(δθ)</code>。</p>
+
+<p>代码：<code>motion_model.hpp:181</code>（预测）、<code>:260</code>（UVL 观测）、<code>armor_target.cpp:345</code>（更新）、<code>very_aimer.cpp:224</code>（命中点）。</p>
+
+<h2>5. SHtech：双模型 + 策略切换</h2>
+
+<pre class="formula">装甲板模型：4 个独立 2D KF
+  state = [p, v]
+  A = [[1,dt],[0,1]], H=[1,0]
+  Q = q [[dt⁴/4, dt³/2],[dt³/2, dt²]]
+
+整车模型：11 维 IESEKF
+  x = [y,vy,x,vx,z,vz,θ,ω,r,l,h]
+  z = [y_a,x_a,z_a,θ_a]
+  H 由 ∂p/∂c、∂p/∂θ、∂p/∂r、∂p/∂l、∂p/∂h 组成</pre>
+
+<p>它按 <code>|ω|</code> 分三档：</p>
+
+<pre class="formula">|ω| < 0.7          → 装甲板模型（低速平移）
+0.7 ≤ |ω| ≤ 2.7    → 两套都更新（过渡）
+|ω| > 2.7          → 整车模型（高速旋转）</pre>
+
+<p>低速时整车模型对“只平移不旋转”不敏感，容易把平移误估成旋转；高速时装甲板模型又跟不上换板。双模型 + 迟滞是最工程化的折中。</p>
+
+<p>代码：<code>Tracker.cpp:106</code>（track）、<code>:578</code>（EKF 初始化）、<code>:887</code>（模型选择）、<code>Planner.cpp:109</code>（4 种策略）。</p>
+
+<h2>6. 三个“为什么”</h2>
+
+<h3>为什么 sp 用球坐标，SHtech 用直角坐标？</h3>
+<p>球坐标的 <code>[yaw,pitch,d]</code> 与“云台要转多少”直接对应，弹道解算只需要 <code>d</code> 和 <code>z</code>；直角坐标的 <code>H</code> 更简单，<code>R</code> 的各向异性也更容易用 <code>u_r/u_t</code> 构造。两者没有绝对优劣，取决于你更想让哪一段“线性”。</p>
+
+<h3>为什么 wuhan 要直接在图像上匹配？</h3>
+<p>因为 PnP 在远距离、斜视角、单板遮挡时深度/姿态噪声很大。图像残差是“传感器原始测量”，不会把 PnP 的错误先验放大；代价是投影模型非线性、计算重。</p>
+
+<h3>为什么 SHtech 要两套模型？</h3>
+<p>因为“整车旋转模型”和“装甲板平移模型”的适用区间不同。用一个模型硬扛全速度段，必然在某一端翻车；两套模型 + 切换，是把“模型选择”显式化。</p>
+
+<h2>7. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. 哪套代码的状态包含完整 SO(3) 姿态？</p>
+<button data-choice="a" data-why="sp 只估单个 yaw。">sp_vision_25</button>
+<button data-choice="b" data-why="wuhan 的 rot_x/rot_y/rot_z 是 SO(3) 旋转向量。">wuhan</button>
+<button data-choice="c" data-why="SHtech 只估单个 yaw。">SHtech</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">2. 哪套代码的观测不是 PnP 位姿，而是灯条端点的图像投影？</p>
+<button data-choice="a" data-why="sp 是 PnP 后转球坐标。">sp_vision_25</button>
+<button data-choice="b" data-why="SHtech 是 PnP 后转直角坐标。">SHtech</button>
+<button data-choice="c" data-why="wuhan 的 UVLMeasure 直接投影灯条端点。">wuhan</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">3. 哪套代码按 <code>|ω|</code> 在“装甲板模型/整车模型”之间切换？</p>
+<button data-choice="a" data-why="SHtech 的 tracker_model_select() 用 0.7/2.7 两个阈值。">SHtech</button>
+<button data-choice="b" data-why="sp 没有双模型切换。">sp_vision_25</button>
+<button data-choice="c" data-why="wuhan 只有前哨站 Voter，没有双模型。">wuhan</button>
+<div class="feedback"></div>
+</div>
+
+<div class="lesson-nav">
+<a href="0003-noise-covariance-nis.html">← 上一课：噪声</a>
+<a href="0005-ekf-eskf-iekf.html">下一课：EKF/ESKF/IEKF →</a>
+</div>
+
+<div class="footer">
+完整公式、代码行号、横向对比表在主报告 <code>三项目自瞄预测对照.md</code>。数值验证在 <code>verify/</code>。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

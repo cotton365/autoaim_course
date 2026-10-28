@@ -1,0 +1,256 @@
+autoaim_course numerical verification
+  python: Python 3.10.12
+  numpy=1.21.5, scipy=1.8.0, matplotlib=3.5.1
+  repository root: /home/zh/RM
+
+==============================================================================
+[1] sp_vision_25: choose_aim_point() tests x[8] (r), not x[7] (w)
+==============================================================================
+  sp_vision_25/tasks/auto_aim/target.cpp:34: // x vx y vy z vz a w r l h
+  sp_vision_25/tasks/auto_aim/target.cpp:39: Eigen::VectorXd x0{{center_x, 0, center_y, 0, center_z, 0, ypr[0], 0, r, 0, 0}};  //初始化预测量
+  sp_vision_25/tasks/auto_aim/target.cpp:243: auto r_ok = ekf_.x[8] > 0.05 && ekf_.x[8] < 0.5;
+  sp_vision_25/tasks/auto_aim/target.cpp:244: auto l_ok = ekf_.x[8] + ekf_.x[9] > 0.05 && ekf_.x[8] + ekf_.x[9] < 0.5;
+  sp_vision_25/tasks/auto_aim/target.cpp:132: if (this->convergened() && this->name == ArmorName::outpost && std::abs(this->ekf_.x[7]) > 2)
+  sp_vision_25/tasks/auto_aim/aimer.cpp:163: if (std::abs(target.ekf_x()[8]) <= 2 && target.name != ArmorName::outpost) {
+  sp_vision_25/tasks/auto_aim/aimer.cpp:41: target.ekf_x()[7] > decision_speed_ ? high_speed_delay_time_ : low_speed_delay_time_;
+  sp_vision_25/tasks/auto_aim/aimer.cpp:204: if (ekf_x[7] > 0 && delta_angle_list[i] < leaving_angle) return {true, armor_xyza_list[i]};
+sp.r_lo_m                                            = 0.05 
+sp.r_hi_m                                            = 0.5 
+sp.threshold                                         = 2 
+sp.threshold_minus_r_hi_m                            = 1.5 
+sp.threshold_over_r_hi                               = 4 
+  r samples [m]                 : [0.05 0.1  0.2  0.26 0.5 ]
+  |x[8]| <= 2 for these samples : [ True  True  True  True  True]
+sp.all_r_samples_pass                                = True 
+  w samples [rad/s]             : [ 0.    1.    1.99  2.    2.51  4.    6.28 10.  ]
+  |x[7]| <= 2 for these samples : [ True  True  True  True False False False False]
+sp.w_threshold_deg_s                                 = 114.591559026 
+sp.outpost_clamp_abs_w                               = 2.51 
+sp.outpost_clamp_above_threshold                     = True 
+  min_x occurrences in tracker.cpp:
+    271: double min_x = 1e10;  // 画面最左侧
+    275: min_x = armor.center.x < min_x ? armor.center.x : min_x;
+    283: //  || armor.center.x != min_x
+sp.min_x_occurrences                                 = 3 
+sp.min_x_non_comment_occurrences                     = 2 
+sp.min_x_effective_reads                             = 0 
+sp.min_x_decl_line                                   = 271 
+sp.min_x_use_is_commented                            = True 
+
+==============================================================================
+[2] sp_vision_25: NIS threshold 0.711 for chi-square df=4
+==============================================================================
+  sp_vision_25/tools/extended_kalman_filter.cpp:66: constexpr double nis_threshold = 0.711;
+  sp_vision_25/tools/extended_kalman_filter.cpp:59: Eigen::VectorXd residual = z_subtract(z, h(x));
+  sp_vision_25/tools/extended_kalman_filter.cpp:61: Eigen::MatrixXd S = H * P * H.transpose() + R;
+  sp_vision_25/tools/extended_kalman_filter.cpp:74: recent_nis_failures.push_back(nis > nis_threshold ? 1 : 0);
+  sp_vision_25/tools/extended_kalman_filter.hpp:42: std::deque<int> recent_nis_failures{0};
+  sp_vision_25/tools/extended_kalman_filter.hpp:43: size_t window_size = 100;
+  sp_vision_25/tasks/auto_aim/tracker.cpp:86: (0.4 * target_.ekf().window_size)) {
+nis.df                                               = 4 
+nis.threshold                                        = 0.711 
+nis.chi2_4_q05                                       = 0.710723021397 
+nis.chi2_4_q95                                       = 9.48772903678 
+nis.threshold_percentile                             = 5.00344992466 
+nis.P_NIS_gt_0.711_consistent                        = 0.949965500753 
+nis.P_NIS_gt_9.4877_consistent                       = 0.05 
+nis.P_NIS_lt_0.711_consistent                        = 0.0500344992466 
+nis.q05_matches_0.711_abs_err                        = 0.000276978602676 
+nis.tracker_window                                   = 100 
+nis.tracker_gate_count                               = 40 
+nis.expected_fail_count_if_consistent                = 94.9965500753 
+nis.binom_P_sum_lt_gate_if_consistent                = 5.69605151627e-53 
+nis.postfit_scale_example                            = 0.333333333333 
+nis.postfit_iso_P_gt_0.711                           = 0.711312342736 
+nis.nees_df                                          = 11 
+nis.nees_q05                                         = 4.57481307932 
+nis.nees_q95                                         = 19.6751375727 
+nis.nees_0.711_percentile                            = 0.000871454866679 
+
+==============================================================================
+[3] SHtech: h_armor_xyz() vs Planner::predict_closest_armor()
+==============================================================================
+  SHtech_auto_aim/predict/Tracker.cpp:296: auto armor_x = x[0] - r * std::cos(angle);
+  SHtech_auto_aim/predict/Tracker.cpp:297: auto armor_y = x[2] - r * std::sin(angle);
+  SHtech_auto_aim/predict/Tracker.cpp:325: Pos3D standard_armor_pos = {standard_armors[j][1], standard_armors[j][0], standard_armors[j][2]};
+  SHtech_auto_aim/planner/Planner.cpp:457: double ya = x(0, 0) - x(8, 0) * cos(x(6, 0));
+  SHtech_auto_aim/planner/Planner.cpp:489: armor_pos << predicted_center_pos(0, 0) + x(8, 0) * sin(predicted_yaw + 1.57 * i),
+  SHtech_auto_aim/planner/Planner.cpp:490: predicted_center_pos(1, 0) + x(8, 0) * cos(predicted_yaw + 1.57 * i),
+  SHtech_auto_aim/planner/Planner.cpp:516: armor_index = closest_armor_idx;
+shtech.r_m                                           = 0.26 
+shtech.l_m                                           = 0 
+shtech.h_m                                           = 0 
+shtech.center_x_m                                    = 0 
+shtech.center_y_m                                    = 3 
+
+  yaw = 0.0 rad
+  id | h_armor_xyz (x,y) | predict_closest_armor (x,y) | |delta|
+   0 | ( 0.000000000,  2.740000000) | ( 0.000000000,  3.260000000) | 0.520000000
+   1 | (-0.260000000,  3.000000000) | ( 0.259999918,  3.000207045) | 0.519999959
+   2 | (-0.000000000,  3.260000000) | ( 0.000414090,  2.740000330) | 0.519999835
+   3 | ( 0.260000000,  3.000000000) | (-0.259999258,  2.999378866) | 0.519999629
+shtech.yaw_0.0.same_id_delta_m                       = [0.5199999999999996, 0.5199999587811369, 0.5199998351245538, 0.5199996290302711] 
+shtech.yaw_0.0.same_id_delta_mean_m                  = 0.519999855734 
+shtech.yaw_0.0.same_id_delta_max_err_from_2r_m       = 3.70969728936e-07 
+  planner id -> nearest h id: [2, 3, 0, 1]
+shtech.yaw_0.0.planner_to_h_id                       = [2, 3, 0, 1] 
+shtech.yaw_0.0.set_hausdorff_code_1.57_m             = 0.000621134752313 
+shtech.yaw_0.0.set_hausdorff_exact_pi2_m             = 3.18408167778e-17 
+  fitted M (same id):
+[[-9.99998415e-01  7.96326458e-04]
+ [-1.59265241e-03 -9.99999366e-01]]
+shtech.yaw_0.0.M_00                                  = -0.99999841466 
+shtech.yaw_0.0.M_01                                  = 0.000796326458243 
+shtech.yaw_0.0.M_10                                  = -0.00159265241151 
+shtech.yaw_0.0.M_11                                  = -0.999999365864 
+shtech.yaw_0.0.M_det                                 = 0.999999048796 
+shtech.yaw_0.0.M_rotation_deg                        = -179.908747671 
+shtech.yaw_0.0.M_max_abs_minus_I                     = 0.00159265241151 
+shtech.yaw_0.0.swap_matrix_det                       = -1 
+
+  yaw = 0.7 rad
+  id | h_armor_xyz (x,y) | predict_closest_armor (x,y) | |delta|
+   0 | (-0.167496599,  2.801141031) | ( 0.167496599,  3.198858969) | 0.520000000
+   1 | (-0.198858969,  3.167496599) | ( 0.198992288,  2.832661811) | 0.519999959
+   2 | ( 0.167496599,  3.198858969) | (-0.167179673,  2.800874520) | 0.519999835
+   3 | ( 0.198858969,  2.832503401) | (-0.199258547,  3.167021051) | 0.519999629
+shtech.yaw_0.7.same_id_delta_m                       = [0.5200000000000004, 0.5199999587811368, 0.519999835124554, 0.519999629030271] 
+shtech.yaw_0.7.same_id_delta_mean_m                  = 0.519999855734 
+shtech.yaw_0.7.same_id_delta_max_err_from_2r_m       = 3.70969729047e-07 
+  planner id -> nearest h id: [2, 3, 0, 1]
+shtech.yaw_0.7.planner_to_h_id                       = [2, 3, 0, 1] 
+shtech.yaw_0.7.set_hausdorff_code_1.57_m             = 0.000621134752313 
+shtech.yaw_0.7.set_hausdorff_exact_pi2_m             = 4.47545209131e-16 
+  fitted M (same id):
+[[-1.00039118  0.00112635]
+ [-0.00126263 -0.9996066 ]]
+shtech.yaw_0.7.M_00                                  = -1.00039117902 
+shtech.yaw_0.7.M_01                                  = 0.00112634612947 
+shtech.yaw_0.7.M_10                                  = -0.00126263274028 
+shtech.yaw_0.7.M_11                                  = -0.999606601501 
+shtech.yaw_0.7.M_det                                 = 0.999999048796 
+shtech.yaw_0.7.M_rotation_deg                        = -179.9276848 
+shtech.yaw_0.7.M_max_abs_minus_I                     = 0.00126263274028 
+shtech.yaw_0.7.swap_matrix_det                       = -1 
+
+==============================================================================
+[4] SHtech: const int armor_jump_interval = 0.1f
+==============================================================================
+  SHtech_auto_aim/planner/Planner.hpp:80: const int armor_jump_interval = 0.1f;
+  SHtech_auto_aim/planner/Planner.cpp:262: if (dt_since_jump > armor_jump_interval) {
+  C++ output:
+    sizeof_int=4
+    float_0.1f_as_double=0.10000000149011612
+    armor_jump_interval_as_int=0
+    dt_zero_gt_interval=0
+    armor_jump_at_dt_zero=1
+    post_jump_frames=200
+    armor_jump_true_frames=0
+    intended_true_frames=100
+armor_jump.interval_as_int                           = 0 
+armor_jump.float_0.1f_as_double                      = 0.10000000149 
+armor_jump.dt_zero_predicate                         = 0 
+armor_jump.armor_jump_at_dt_zero                     = 1 
+armor_jump.post_jump_frames                          = 200 
+armor_jump.armor_jump_true_frames                    = 0 
+
+==============================================================================
+[5] SHtech IESEKF_Double_Armor: prior term sign
+==============================================================================
+  SHtech_auto_aim/mathutils/IESEKF_Double_Armor.hpp:243: Matrix_x1d dx_pri = x_minus(X_pri, X_cur);
+  SHtech_auto_aim/mathutils/IESEKF_Double_Armor.hpp:248: Matrix_x1d dx = K * (innovation + H * dx_pri);
+  SHtech_auto_aim/mathutils/IESEKF_Double_Armor.hpp:251: Matrix_x1d X_next = x_add(X_pri, dx);
+  SHtech_auto_aim/mathutils/IESEKF_Double_Armor.hpp:123: int max_iter_ = 5, double stop_threshold_ = 1e-4)
+iekf.x_pri                                           = 0 
+iekf.P                                               = 1 
+iekf.H                                               = 1 
+iekf.R                                               = 1 
+iekf.z                                               = 1 
+iekf.K                                               = 0.5 
+iekf.true_posterior                                  = 0.5 
+iekf.code_fixed_point                                = 0.25 
+iekf.code_map_derivative                             = -1 
+
+  iteration | standard x_k | code x_k
+       0     |    0.000000000000 |   0.000000000000
+       1     |    0.500000000000 |   0.500000000000
+       2     |    0.500000000000 |   0.000000000000
+       3     |    0.500000000000 |   0.500000000000
+       4     |    0.500000000000 |   0.000000000000
+       5     |    0.500000000000 |   0.500000000000
+
+  code details (x_cur, innovation, dx_pri, correction, x_next):
+    1: 0.000000  1.000000  0.000000  0.500000  0.500000
+    2: 0.500000  0.500000  -0.500000  0.000000  0.000000
+    3: 0.000000  1.000000  0.000000  0.500000  0.500000
+    4: 0.500000  0.500000  -0.500000  0.000000  0.000000
+    5: 0.000000  1.000000  0.000000  0.500000  0.500000
+iekf.standard_final                                  = 0.5 
+iekf.code_final_5iter                                = 0.5 
+iekf.code_final_6iter                                = 0 
+iekf.code_final_parity_dependent                     = True 
+iekf.code_max_step_change                            = 0.5 
+iekf.standard_max_step_change                        = 0.5 
+
+==============================================================================
+[6] wuhan: solve_pitch() returns p1 (high arc) before p2
+==============================================================================
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:78: const double u1 = (A + sqrt_disc) / denom;
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:79: const double u2 = (A - sqrt_disc) / denom;
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:91: if (valid(p1))
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:93: if (valid(p2))
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:155: const double x = std::log1p(k_ * v0 * cos_theta * t) * inv_k_;
+  wuhan/src/tasks/base/ballistic_trajectory.hpp:158: const double y = v0 * std::sin(pitch) * t - 0.5 * g_ * t * t;
+wuhan.g                                              = 9.8 
+wuhan.k                                              = 0.092 
+wuhan.v0                                             = 30 
+wuhan.d                                              = 23.5 
+wuhan.h                                              = 1 
+wuhan.A                                              = 83.5706226916 
+wuhan.B                                              = 38.0242666529 
+wuhan.C                                              = 2.78568742305 
+wuhan.disc                                           = 1048.57249249 
+wuhan.u1                                             = 1.52471437295 
+wuhan.u2                                             = 0.673109018479 
+wuhan.p1                                             = 0.990312241422 
+wuhan.p2                                             = 0.592449441668 
+wuhan.t1                                             = 5.07939674978 
+wuhan.t2                                             = 3.35796767417 
+wuhan.p1_deg                                         = 56.7407118336 
+wuhan.p2_deg                                         = 33.9448525824 
+wuhan.t1_s                                           = 5.07939674978 
+wuhan.t2_s                                           = 3.35796767417 
+wuhan.p1_in_range                                    = True 
+wuhan.p2_in_range                                    = True 
+wuhan.p1_gt_p2                                       = True 
+wuhan.delta_pitch_deg                                = 22.7958592512 
+wuhan.delta_t_s                                      = 1.72142907561 
+wuhan.returned_pitch_deg                             = 56.7407118336 
+wuhan.returned_is_p1                                 = True 
+wuhan.forward_p1_dx_err_m                            = 0 
+wuhan.forward_p1_dy_err_m                            = 1.42108547152e-14 
+wuhan.forward_p2_dx_err_m                            = 0 
+wuhan.forward_p2_dy_err_m                            = 7.1054273576e-15 
+wuhan.forward_p1_abs_max_err_m                       = 1.42108547152e-14 
+wuhan.forward_p2_abs_max_err_m                       = 7.1054273576e-15 
+wuhan.forward_check_pass_1e-6                        = True 
+wuhan.sp_dragfree_pitch_deg                          = 9.87917785783 
+wuhan.sp_dragfree_fly_time_s                         = 0.795123631117 
+wuhan.sp_picks_low_arc                               = True 
+wuhan.high_arc_apex_x_m                              = 17.21827749 
+wuhan.high_arc_apex_y_m                              = 32.1073098565 
+
+==============================================================================
+Figures
+==============================================================================
+
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_sp_index.png
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_nis_threshold.png
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_shtech_geometry.png
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_armor_jump.png
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_iekf_sign.png
+  [figure] /home/zh/RM/autoaim_course/assets/figures/proj_wuhan_ballistic.png
+
+  [json] /home/zh/RM/autoaim_course/verify/verify_results.json
+
+Done.

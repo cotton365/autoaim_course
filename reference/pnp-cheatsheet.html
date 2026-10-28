@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · PnP 与坐标系</title><link rel="stylesheet" href="../assets/course.css"></head>
+<body><div class="wrap">
+<p class="kicker">Reference · 速查卡</p>
+<h1>PnP 与坐标系</h1>
+<p class="lede">从 3D 模型点到像素，再从像素反解位姿；以及相机→云台→世界的变换。</p>
+
+<h2>1. 针孔模型</h2>
+<pre class="formula">P_c = (X,Y,Z)
+x = X/Z,  y = Y/Z
+u = fx·x + cx
+v = fy·y + cy
+
+K = [[fx,0,cx],[0,fy,cy],[0,0,1]]</pre>
+<p>畸变：径向 <code>k1,k2,k3</code>，切向 <code>p1,p2</code>；OpenCV 的 <code>projectPoints</code> 会按 <code>K,D</code> 处理。</p>
+
+<h2>2. PnP</h2>
+<pre class="formula">min_{R,t} Σ_i || π(K, R P_i + t) - u_i ||²
+
+p_cam = R · p_model + t
+R: model → camera
+t: model origin in camera</pre>
+
+<table>
+<tr><th>方法</th><th>特点</th><th>用途</th></tr>
+<tr><td><code>SOLVEPNP_IPPE</code></td><td>平面目标，双解</td><td>装甲板</td></tr>
+<tr><td><code>SOLVEPNP_ITERATIVE</code></td><td>通用，需初值</td><td>非平面/精化</td></tr>
+<tr><td><code>SOLVEPNP_EPNP</code></td><td>非平面，快</td><td>通用初始化</td></tr>
+</table>
+
+<h2>3. 重投影误差与 yaw 搜索</h2>
+<pre class="formula">E(yaw) = Σ_i || π(K, R(yaw,pitch) P_i + t) - u_i ||
+best_yaw = argmin_{yaw∈[-70°,70°]} E(yaw)</pre>
+<p>sp 的 <code>optimize_yaw()</code> 用 1° 网格；wuhan 的 <code>armor_pnp()</code> 用黄金分割搜索（仅前哨站/非 WROT）。</p>
+
+<h2>4. 坐标系链</h2>
+<pre class="formula">p_gimbal = R_c2g · p_camera + t_c2g
+p_world  = R_g2w · p_gimbal</pre>
+
+<table>
+<tr><th>系</th><th>原点</th><th>轴</th><th>谁用</th></tr>
+<tr><td>camera</td><td>光心</td><td>OpenCV 相机系</td><td>PnP/投影</td></tr>
+<tr><td>gimbal</td><td>云台旋转中心</td><td>随云台转</td><td>外参</td></tr>
+<tr><td>world</td><td>云台/IMU 原点</td><td>重力对齐</td><td>sp/SHtech</td></tr>
+<tr><td>odom</td><td>底盘里程计原点</td><td>场地固定</td><td>wuhan</td></tr>
+</table>
+
+<div class="box mathbox"><span class="label">关键区别</span>
+sp/SHtech 的 world 只做旋转、不做平移，所以原点随机器人平移；状态速度是“相对云台/IMU 的速度”。wuhan 的状态在 odom，瞄准前减云台 <code>p/v</code>。</div>
+
+<h2>5. 深度误差</h2>
+<pre class="formula">σ_X ≈ Z · σ_px / f
+σ_Z / Z ≈ σ_w / w_px</pre>
+<p>目标越远，成像越小，相对深度误差越大。这就是 R 的距离项来源。</p>
+
+<h2>6. 装甲板俯仰</h2>
+<pre class="formula">R_armor = Rz(yaw) · Ry(pitch)
+pitch = +15°（普通）, -15°（前哨站）</pre>
+<p>忽略 15° 会让四个角点的投影形状和 yaw 估计产生偏差；sp/wuhan 显式建模，SHtech 的 <code>h()</code> 只建模 yaw。</p>
+
+<div class="footer"><a href="../README.md">← 课程目录</a> · <a href="noise-cheatsheet.html">噪声速查 →</a></div>
+</div></body></html>

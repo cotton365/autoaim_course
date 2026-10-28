@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0002 · PnP：从四个像素到世界坐标</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0002 · 基础线</p>
+<h1>PnP：从四个像素到世界坐标</h1>
+<p class="lede">这一节把“检测到四个角点”变成“目标在世界系下的位置和朝向”，并解释 <code>solvePnP</code>、重投影、yaw 搜索、15° 装甲板俯仰到底在做什么。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：针孔模型、旋转矩阵</span><span>对应代码：<code>solver.cpp</code> / <code>CoordTransformer.cpp</code></span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+写出针孔投影公式；解释 PnP 为什么是“最小化重投影误差”；说清相机系→云台系→世界系的变换；解释 sp 的 ±70° yaw 搜索和 15° 俯仰为什么不能忽略。
+</div>
+
+<h2>1. 针孔模型：3D 点怎么变成像素</h2>
+
+<p>相机坐标系下一点 <code>P_c=(X,Y,Z)</code>，归一化坐标：</p>
+<pre class="formula">x = X/Z,   y = Y/Z</pre>
+
+<p>加畸变（径向 <code>k1,k2,k3</code>，切向 <code>p1,p2</code>），再乘内参：</p>
+<pre class="formula">u = fx · x_dist + cx
+v = fy · y_dist + cy
+
+K = [[fx, 0, cx],
+     [0, fy, cy],
+     [0,  0,  1]]</pre>
+
+<p><code>K</code> 是内参，描述“相机本身”；<code>R,t</code> 是外参，描述“装甲板相对相机在哪”。PnP 要解的就是后者。</p>
+
+<figure>
+<img src="../assets/figures/pnp_projection.png" alt="Projection of armor corners into the image">
+<figcaption>装甲板 4 个角点投影到图像。像素坐标是 3D 点的“透视压缩”结果；近处大、远处小，深度 <code>Z</code> 在分母上。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
+</figure>
+
+<h2>2. PnP：已知 3D 模型和 2D 像素，反解位姿</h2>
+
+<p>装甲板的 3D 模型坐标是已知的（比如 0.135 m × 0.056 m 的矩形）。检测器给出 4 个像素点。PnP 求解：</p>
+
+<pre class="formula">min_{R,t}  Σ_i || π(K, R P_i + t) - u_i ||²
+
+π(K, P_c) = ( fx X/Z + cx,  fy Y/Z + cy )</pre>
+
+<p>这是一个非线性最小二乘。OpenCV 的 <code>solvePnP(..., SOLVEPNP_IPPE)</code> 是平面目标专用解法：先解单应，再分解出 <code>R,t</code>，速度快，而且会给出两个候选解（正面/背面）。</p>
+
+<div class="box pitfall"><span class="label">平面 PnP 的双解</span>
+一个平面矩形从图像反解位姿，天然有“翻面”歧义：正面看和背面看可以投影出同样的四边形。工程上要用法向量选“正面朝向相机”的解——sp 的 <code>solver.cpp</code> 和 wuhan 的 <code>armor_pnp()</code> 都做了这件事。但注意：本实验里 <strong>200/200 次两个解都正面朝相机</strong>，单靠法向量筛不掉镜像支；还需要 pitch 符号先验（+15°）或时域一致性。sp 固定 pitch 再搜 yaw，正好避开了这个坑。
+</div>
+
+<h2>3. 重投影误差：PnP 的“事后验算”</h2>
+
+<p>把解出的 <code>R,t</code> 再投影回图像，和检测到的像素点比较：</p>
+
+<pre class="formula">e_i = || π(K, R P_i + t) - u_i ||
+E   = Σ_i e_i</pre>
+
+<p><code>E</code> 小，说明这个位姿能解释看到的四边形。sp 的 <code>optimize_yaw()</code> 就是固定位置和 15° 俯仰，只扫 yaw，找 <code>E</code> 最小的 yaw：</p>
+
+<pre class="formula">for yaw in [-70°, +70°] step 1°:
+    E(yaw) = Σ_i || π(K, R(yaw, pitch=15°) P_i + t) - u_i ||
+best_yaw = argmin E(yaw)</pre>
+
+<figure>
+<img src="../assets/figures/pnp_yaw_scan.png" alt="Reprojection error vs yaw">
+<figcaption>重投影误差随 yaw 的变化：最小值就在真实 yaw 附近。sp 用 ±70° 的 1° 网格搜索，而不是解析求导，是因为平面目标的 yaw 只影响四个角点的投影形状，代价函数不复杂但也不太平滑。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
+</figure>
+
+<h2>4. 坐标系：相机 → 云台 → 世界</h2>
+
+<p>PnP 给出的 <code>t</code> 在相机系。要变成自瞄能用的坐标，需要两次变换：</p>
+
+<pre class="formula">p_gimbal = R_camera2gimbal · p_camera + t_camera2gimbal
+p_world  = R_gimbal2world  · p_gimbal</pre>
+
+<p>注意第二行只有旋转，没有平移。这意味着：<strong>sp/SHtech 的“世界系”原点就在云台/IMU 旋转中心</strong>，它随机器人平移，但不随机器人旋转（轴是重力对齐的）。</p>
+
+<figure>
+<img src="../assets/figures/pnp_frames.png" alt="Camera, gimbal and world frames">
+<figcaption>三个原点：相机光心、云台旋转中心、世界原点（与云台重合）。同一个目标点在不同系下的坐标只差一个刚体变换。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
+</figure>
+
+<div class="box mathbox"><span class="label">这个选择的影响</span>
+因为世界原点在云台，<code>p_world</code> 直接就是“目标相对枪口”的向量，弹道解算不需要再减云台位置。但代价是：机器人平移时，静止目标在状态里的速度会变成 <code>-v_robot</code>。sp/SHtech 靠 EKF 把这个相对速度学进去；wuhan 则额外维护 odom 系，瞄准前减掉云台 <code>p/v</code>，更物理。
+</div>
+
+<h2>5. 为什么 15° 俯仰不能忽略</h2>
+
+<p>RoboMaster 的装甲板通常前倾约 15°。如果 PnP/投影模型假设 <code>pitch=0</code>，四个角点的投影形状会变，yaw 的估计也会被带偏。</p>
+
+<figure>
+<img src="../assets/figures/pnp_pitch_bias.png" alt="Effect of ignoring the 15 degree pitch">
+<figcaption>同一位置、同一 yaw，分别用 <code>pitch=15°</code> 和 <code>pitch=0°</code> 投影，角点像素差和 yaw 偏差。sp/wuhan 在重投影/位姿里显式写了 ±15°；SHtech 的 <code>h()</code> 只建模 yaw，这是一个模型简化。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
+</figure>
+
+<h2>6. 深度误差为什么随距离爆炸</h2>
+
+<p>像素误差 <code>σ_px</code> 对应归一化坐标误差 <code>σ_px/f</code>，再乘深度 <code>Z</code> 得到横向误差：</p>
+
+<pre class="formula">σ_X ≈ Z · σ_px / f</pre>
+
+<p>而深度误差还更差：对于小基线/单目，深度主要由目标在图像中的“大小”决定，<code>Z ∝ f·W / w_px</code>，所以</p>
+
+<pre class="formula">σ_Z / Z ≈ σ_w / w_px</pre>
+
+<p>目标越远，<code>w_px</code> 越小，相对深度误差越大。这就是为什么三套代码的 <code>R</code> 都不是常数：sp 用 <code>log(|Δθ|+1)</code> 放大斜视角的距离噪声；SHtech 用 <code>σ_r=0.2·d</code>；wuhan 用灯条像素长度缩放 <code>R</code>。</p>
+
+<figure>
+<img src="../assets/figures/pnp_depth_noise.png" alt="Depth error vs distance">
+<figcaption>固定 0.5 px 像素噪声，深度相对误差随距离增长。远处目标的 PnP 深度不能当真，必须把 <code>R</code> 放大。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
+</figure>
+
+<h2>7. 三套代码的观测入口</h2>
+
+<table>
+<tr><th>项目</th><th>入口</th><th>观测</th><th>特点</th></tr>
+<tr><td>sp</td><td><code>Solver::solve()</code></td><td><code>[yaw,pitch,d,armor_yaw]</code></td><td>PnP + ±70° yaw 重投影搜索；观测转球坐标</td></tr>
+<tr><td>wuhan</td><td><code>ArmorTarget::update()</code></td><td>灯条端点投影 <code>[angle,cx,cy,len]</code></td><td>主更新不用 PnP 位姿；PnP 只用于初始化和单板深度差</td></tr>
+<tr><td>SHtech</td><td><code>CoordTransformer::pnp_get_measurement()</code></td><td><code>[y,x,z,yaw]</code></td><td>PnP IPPE；yaw 由法向量算，减去 IMU yaw</td></tr>
+</table>
+
+<div class="box mathbox"><span class="label">数值后验（200 次，0.5 px 噪声）</span>
+裸 <code>solvePnP</code> 的旋转误差均值 <strong>23.4°</strong>，因为 200 次里有 80 次选到了镜像解；
+用“+15° 俯仰 + 正面朝向”先验挑分支后降到 <strong>6.6°</strong>，重投影 RMS 约 <strong>0.27 px</strong>。注意“正面朝向”本身不够：200/200 次两个解都满足它。
+6 m 处深度相对误差 mean|<strong>4.1%</strong>|（约 247 mm）；yaw 扫描的估计标准差 <strong>1.45°</strong>；
+忽略 15° 俯仰会让 yaw 偏 <strong>-3.7°</strong>、深度偏 <strong>+3.5%</strong>。见 <code>verify/verify_pnp.py</code>。
+</div>
+
+<h2>8. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. <code>solvePnP</code> 最小化的是什么？</p>
+<button data-choice="a" data-why="它最小化的是像素误差，不是 3D 距离。">3D 点之间的欧氏距离</button>
+<button data-choice="b" data-why="把解出的位姿再投影回图像，和检测像素比较，这就是重投影误差。">重投影的像素误差</button>
+<button data-choice="c" data-why="PnP 不需要时间信息。">连续两帧的时间误差</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">2. sp/SHtech 的世界系原点在哪？</p>
+<button data-choice="a" data-why="不是场地原点；它们没有做全局定位。">场地的一个固定点</button>
+<button data-choice="b" data-why="不是相机光心；相机系还要经过外参变换。">相机光心</button>
+<button data-choice="c" data-why="<code>p_world = R_gimbal2world · p_gimbal</code>，没有平移，所以原点就是云台旋转中心。">云台旋转中心</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">3. 为什么远处目标的 PnP 深度更不可信？</p>
+<button data-choice="a" data-why="目标成像越小，同样的像素误差对应更大的相对深度误差。">成像变小，相对误差变大</button>
+<button data-choice="b" data-why="重力不影响 PnP 深度。">重力让弹道下坠</button>
+<button data-choice="c" data-why="焦距不会随距离变化。">焦距随距离变小</button>
+<div class="feedback"></div>
+</div>
+
+<div class="lesson-nav">
+<a href="0001-kf-from-gaussian.html">← 上一课：KF</a>
+<a href="0003-noise-covariance-nis.html">下一课：噪声与 NIS →</a>
+</div>
+
+<div class="footer">
+数值实验：<code>verify/verify_pnp.py</code>。主要来源：OpenCV <code>solvePnP</code> 文档；Collins &amp; Bartoli, IPPE；Zhang, 相机标定。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

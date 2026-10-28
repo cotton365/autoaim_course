@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · 三项目代码地图</title><link rel="stylesheet" href="../assets/course.css"></head>
+<body><div class="wrap">
+<p class="kicker">Reference · 代码地图</p>
+<h1>三项目预测代码地图</h1>
+<p class="lede">按“读代码的顺序”排：先找观测入口，再找状态定义，再找 predict/update，最后找瞄准和弹道。</p>
+
+<h2>sp_vision_25</h2>
+<table>
+<tr><th>步骤</th><th>函数/文件</th><th>看什么</th></tr>
+<tr><td>观测入口</td><td><code>tasks/auto_aim/solver.cpp:55</code></td><td>PnP→world→ypd，yaw 重投影搜索</td></tr>
+<tr><td>状态</td><td><code>tasks/auto_aim/target.cpp:10</code></td><td>11 维初始化，半径/板数</td></tr>
+<tr><td>预测</td><td><code>target.cpp:75</code></td><td>F/Q，前哨站转速钳位</td></tr>
+<tr><td>观测模型</td><td><code>target.cpp:187</code>, <code>:280</code></td><td>z、H 链式法则、R</td></tr>
+<tr><td>关联</td><td><code>target.cpp:138</code></td><td>最近 3 块 + 角度误差</td></tr>
+<tr><td>瞄准</td><td><code>aimer.cpp:32</code></td><td>延迟、未来预测、飞行时间不动点</td></tr>
+<tr><td>选板</td><td><code>aimer.cpp:144</code></td><td>60° 扇区、锁定、小陀螺</td></tr>
+<tr><td>弹道</td><td><code>tools/trajectory.cpp:9</code></td><td>抛物线二次方程</td></tr>
+<tr><td>MPC 变体</td><td><code>planner/planner.cpp:120</code></td><td>参考轨迹 + TinyMPC</td></tr>
+</table>
+
+<h2>wuhan</h2>
+<table>
+<tr><th>步骤</th><th>函数/文件</th><th>看什么</th></tr>
+<tr><td>状态/几何</td><td><code>armor_track/motion_model.hpp:20</code>, <code>:59</code></td><td>13 维、SO(3)、装甲板位姿</td></tr>
+<tr><td>预测</td><td><code>motion_model.hpp:181</code></td><td>CV + 绕车体 z 旋转、Voter</td></tr>
+<tr><td>观测</td><td><code>motion_model.hpp:260</code></td><td>灯条端点投影 UVL</td></tr>
+<tr><td>更新</td><td><code>armor_target.cpp:345</code></td><td>批量观测、5 次迭代</td></tr>
+<tr><td>噪声</td><td><code>armor_target.cpp:280</code></td><td>车体系加速度→世界系</td></tr>
+<tr><td>匹配</td><td><code>armor_target.cpp:508</code></td><td>4 边形代价 + greedy</td></tr>
+<tr><td>瞄准</td><td><code>armor_control/very_aimer.cpp:224</code></td><td>命中点不动点、冻结 id</td></tr>
+<tr><td>控制</td><td><code>very_aimer.cpp:324</code></td><td>参考轨迹 + MPC/五次</td></tr>
+<tr><td>弹道</td><td><code>src/tasks/base/ballistic_trajectory.hpp:43</code></td><td>水平二次阻力</td></tr>
+</table>
+
+<h2>SHtech_auto_aim</h2>
+<table>
+<tr><th>步骤</th><th>函数/文件</th><th>看什么</th></tr>
+<tr><td>跟踪主循环</td><td><code>predict/Tracker.cpp:106</code></td><td>predict→模型选择→KF/EKF update</td></tr>
+<tr><td>EKF 初始化</td><td><code>Tracker.cpp:578</code></td><td>11 维、f/h/F/H/Q/R</td></tr>
+<tr><td>R 各向异性</td><td><code>Tracker.cpp:669</code></td><td>径向/切向基向量</td></tr>
+<tr><td>模型切换</td><td><code>Tracker.cpp:887</code></td><td>0.7 / 2.7 阈值</td></tr>
+<tr><td>IESEKF</td><td><code>mathutils/IESEKF_Double_Armor.hpp:200</code></td><td>迭代 + 先验项</td></tr>
+<tr><td>策略</td><td><code>planner/Planner.cpp:109</code></td><td>4 种瞄准模式</td></tr>
+<tr><td>最近板</td><td><code>Planner.cpp:472</code></td><td>4 板展开 + 最近</td></tr>
+<tr><td>弹道补偿</td><td><code>Planner.cpp:536</code></td><td>重力补偿 + 坐标变换</td></tr>
+<tr><td>参考轨迹</td><td><code>Planner.cpp:568</code></td><td>中心差分角速度</td></tr>
+</table>
+
+<h2>推荐阅读顺序</h2>
+<ol>
+<li>先读 sp 的 <code>Target::update</code> + <code>aimer.aim</code>：最短的完整链路。</li>
+<li>再读 wuhan 的 <code>motion_model.hpp</code> 的 <code>armor_pose</code> / <code>UVLMeasure</code>：理解“图像投影观测”。</li>
+<li>再读 SHtech 的 <code>Tracker::track</code> + <code>Planner::make_plan</code>：理解“双模型 + 策略切换”。</li>
+<li>最后读三家的弹道和开火门控，比较“预测层”和“控制层”的分工。</li>
+</ol>
+
+<div class="footer"><a href="../README.md">← 课程目录</a> · <a href="glossary.html">术语表 →</a></div>
+</div></body></html>

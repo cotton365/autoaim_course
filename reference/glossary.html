@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · 术语表</title><link rel="stylesheet" href="../assets/course.css"></head>
+<body><div class="wrap">
+<p class="kicker">Reference · 术语表</p>
+<h1>自瞄预测术语表</h1>
+<p class="lede">按主题分组。括号里是三套代码常用的变量名。</p>
+
+<h2>状态估计</h2>
+<table>
+<tr><th>术语</th><th>含义</th><th>代码里</th></tr>
+<tr><td>状态 <code>x</code></td><td>要估计的量：车心、速度、朝向、角速度、半径…</td><td><code>ekf_.x</code>, <code>tracked_state</code>, <code>target_state.x</code></td></tr>
+<tr><td>协方差 <code>P</code></td><td>状态估计的不确定性；椭圆</td><td><code>ekf_.P</code>, <code>P_post</code></td></tr>
+<tr><td>过程噪声 <code>Q</code></td><td>预测模型的不确定性</td><td><code>Q</code>, <code>process_noise()</code></td></tr>
+<tr><td>观测噪声 <code>R</code></td><td>观测的不确定性</td><td><code>R_dig</code>, <code>u_r()</code>, <code>update_R_()</code></td></tr>
+<tr><td>雅可比 <code>H</code></td><td>观测函数对状态的偏导</td><td><code>h_jacobian</code>, <code>cal_H_</code></td></tr>
+<tr><td>增益 <code>K</code></td><td>残差到状态修正的权重</td><td><code>K</code></td></tr>
+<tr><td>创新 <code>y</code></td><td><code>z - h(x⁻)</code>，观测残差</td><td><code>residual</code>, <code>innovation</code></td></tr>
+<tr><td>创新协方差 <code>S</code></td><td><code>H P Hᵀ + R</code></td><td><code>S</code></td></tr>
+<tr><td>线性化</td><td>用一阶泰勒展开代替非线性函数</td><td>EKF/IEKF/ESKF 的区别所在</td></tr>
+<tr><td>EKF</td><td>扩展卡尔曼滤波：在 <code>x⁻</code> 处线性化一次</td><td>sp</td></tr>
+<tr><td>IEKF</td><td>迭代 EKF：在 <code>x_k</code> 处反复线性化</td><td>SHtech</td></tr>
+<tr><td>ESKF</td><td>误差状态 KF：名义状态 + 切空间误差</td><td>wuhan</td></tr>
+<tr><td>注入 / 求差</td><td><code>inject(δ,x)</code> / <code>box_minus(x1,x2)</code></td><td><code>inject_state</code>, <code>box_minus_state</code></td></tr>
+<tr><td>NIS</td><td>归一化创新平方，检验观测一致性</td><td><code>nis</code></td></tr>
+<tr><td>NEES</td><td>归一化估计误差平方，检验状态一致性</td><td><code>nees</code></td></tr>
+<tr><td>马氏距离</td><td>按协方差白化后的距离</td><td><code>d_M</code></td></tr>
+<tr><td>χ² 分位</td><td>NIS/NEES 的阈值来源</td><td>0.711 / 9.49（df=4）</td></tr>
+</table>
+
+<h2>几何与观测</h2>
+<table>
+<tr><th>术语</th><th>含义</th><th>代码里</th></tr>
+<tr><td>PnP</td><td>已知 3D 模型和 2D 像素，反解 <code>R,t</code></td><td><code>solvePnP</code></td></tr>
+<tr><td>IPPE</td><td>平面目标 PnP，双解</td><td><code>SOLVEPNP_IPPE</code></td></tr>
+<tr><td>重投影误差</td><td>解出的位姿再投影与检测像素的差</td><td><code>reprojection</code></td></tr>
+<tr><td>内参 <code>K</code></td><td><code>fx,fy,cx,cy</code></td><td><code>camera_matrix</code></td></tr>
+<tr><td>外参</td><td>相机↔云台/世界的 <code>R,t</code></td><td><code>R_camera2gimbal</code></td></tr>
+<tr><td>畸变 <code>D</code></td><td><code>k1,k2,p1,p2,k3</code></td><td><code>distort_coeffs</code></td></tr>
+<tr><td>球坐标 YPD</td><td>yaw / pitch / distance</td><td><code>ypd_in_world</code></td></tr>
+<tr><td>world 系</td><td>重力对齐；sp/SHtech 原点在云台/IMU</td><td><code>xyz_in_world</code></td></tr>
+<tr><td>odom 系</td><td>底盘里程计固定原点</td><td>wuhan <code>SimpleFrame::ODOM</code></td></tr>
+<tr><td>gimbal_odom</td><td>odom 轴 + 云台原点</td><td>wuhan 瞄准前变换</td></tr>
+<tr><td>装甲板 15°</td><td>普通板前倾 +15°，前哨站 -15°</td><td><code>FIFTTEN_DEGREE_RAD</code></td></tr>
+</table>
+
+<h2>目标与关联</h2>
+<table>
+<tr><th>术语</th><th>含义</th><th>代码里</th></tr>
+<tr><td>装甲板 ID</td><td>同一辆车上的第几块板</td><td><code>id</code>, <code>armor_index</code></td></tr>
+<tr><td>jumped</td><td>是否已经观察到换板</td><td><code>target.jumped</code></td></tr>
+<tr><td>数据关联</td><td>把检测框分配给哪块预测板</td><td><code>match_armor</code>, <code>match_armor_id</code></td></tr>
+<tr><td>门控</td><td>代价超过阈值就不匹配</td><td><code>gate</code></td></tr>
+<tr><td>小陀螺</td><td>目标高速自转，装甲板轮流出现</td><td><code>|ω| > threshold</code></td></tr>
+<tr><td>前哨站</td><td>3 块板、120°、固定转速</td><td><code>ArmorClass::OUTPOST</code></td></tr>
+<tr><td>r/l/h</td><td>半径、两对板半径差、高度差</td><td><code>ekf_x[8..10]</code></td></tr>
+</table>
+
+<h2>预测与控制</h2>
+<table>
+<tr><th>术语</th><th>含义</th><th>代码里</th></tr>
+<tr><td>飞行时间 <code>T_fly</code></td><td>子弹从出膛到命中的时间</td><td><code>fly_time</code></td></tr>
+<tr><td>不动点</td><td><code>T</code> 依赖命中点，命中点依赖 <code>T</code></td><td>10 次迭代</td></tr>
+<tr><td>提前量</td><td>瞄准未来位置而不是当前位置</td><td><code>predict(t_hit)</code></td></tr>
+<tr><td>发弹延迟</td><td>从指令到子弹出膛的时间</td><td><code>single_shoot_latency</code></td></tr>
+<tr><td>通信延迟</td><td>上位机到下位机的时间</td><td><code>comm_latency</code></td></tr>
+<tr><td>MPC</td><td>带约束的滚动优化</td><td><code>tiny_solve</code></td></tr>
+<tr><td>五次多项式</td><td>位置/速度/加速度连续的轨迹段</td><td><code>LimitTrajectory</code></td></tr>
+<tr><td>开火窗口</td><td>云台角落在装甲板角尺寸内</td><td><code>fire_advice</code>, <code>fire_enable</code></td></tr>
+</table>
+
+<div class="footer"><a href="../README.md">← 课程目录</a> · <a href="project-map.html">← 项目地图</a></div>
+</div></body></html>

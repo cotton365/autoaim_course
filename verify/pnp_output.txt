@@ -1,0 +1,157 @@
+==============================================================================
+verify_pnp.py - pinhole / PnP / yaw / frames / armor pitch verification
+==============================================================================
+python      : 3.10.12
+numpy       : 1.21.5
+scipy       : 1.8.0
+opencv      : 4.5.4
+matplotlib  : 3.5.1
+figures dir : /home/zh/RM/autoaim_course/assets/figures
+camera K    :
+[[800.   0. 640.]
+ [  0. 800. 360.]
+ [  0.   0.   1.]]
+armor W x H : 0.135 m x 0.056 m
+armor frame : x right, y up, z outward; corners TL, BL, BR, TR
+R_base      : diag(1,-1,-1), mapping front-facing armor axes to camera axes
+noise       : independent N(0, 0.5^2) on every u and v pixel coordinate
+
+------------------------------------------------------------------------------
+[1] closed-loop projection and PnP (200 runs, 3 m, yaw=20 deg, pitch=15 deg)
+------------------------------------------------------------------------------
+seed        : 20261026
+true R_armor2camera:
+[[ 0.939693  0.088521  0.330366]
+ [ 0.       -0.965926  0.258819]
+ [ 0.34202  -0.24321  -0.907673]]
+true t (m): [0. 0. 3.]
+true normal (camera): [ 0.330366  0.258819 -0.907673]
+true yaw/pitch from normal (deg): (20.0, 14.999999999999998)
+clean pixels (u,v):
+  TL: ( 623.5829,  352.7152)
+  BL: ( 622.3287,  367.2516)
+  BR: ( 656.0931,  367.1411)
+  TR: ( 657.4806,  352.8267)
+clean projected extent: width=35.1519 px, height=14.5364 px, center=(639.871, 359.984)
+
+generic solution count: {2: 200}
+runs where BOTH generic solutions face the camera: 200/200
+raw solvePnP chose negative-pitch (mirror) branch: 80/200
+raw solvePnP equals the lower-reprojection generic solution: 200/200
+  generic branch rotation gap        mean=  49.6419 deg  std=  9.4784 deg median=  50.2135 deg  p95|.|=  64.4949 deg
+  generic branch reprojection gap    mean=   0.0562 px  std=  0.0292 px median=   0.0586 px  p95|.|=   0.0992 px
+
+raw solvePnP (no branch prior):
+  rotation error                     mean=  23.3914 deg  std= 21.5567 deg median=   9.5511 deg  p95|.|=  55.4243 deg
+  translation error                  mean=  71.0256 mm  std= 49.1541 mm median=  64.1804 mm  p95|.|= 163.6447 mm
+  reprojection RMS                   mean=   0.2736 px  std=  0.1507 px median=   0.2595 px  p95|.|=   0.5506 px
+
+IPPE branch chosen with known +15 deg pitch prior:
+  rotation error                     mean=   6.6341 deg  std=  4.4405 deg median=   5.6726 deg  p95|.|=  12.8975 deg
+  translation error                  mean=  71.0971 mm  std= 49.2083 mm median=  64.1804 mm  p95|.|= 163.6447 mm
+  reprojection RMS                   mean=   0.3028 px  std=  0.1533 px median=   0.2977 px  p95|.|=   0.5736 px
+  yaw error (estimate - truth)       mean=  -0.9484 deg  std=  6.4029 deg median=  -0.2291 deg  p95|.|=  12.0123 deg
+  pitch error (estimate - truth)     mean=  -0.0733 deg  std=  4.7255 deg median=  -0.1474 deg  p95|.|=   9.5497 deg
+
+------------------------------------------------------------------------------
+[2] depth error vs distance (0.5 px noise, 200 runs per distance)
+------------------------------------------------------------------------------
+seed        : 20261027
+  d=1 m: mean= +0.024%  std= 0.907%  mean|.|= 0.728%  p95|.|= 1.801%  mean|z_err|=  7.28 mm
+  d=2 m: mean= -0.124%  std= 1.913%  mean|.|= 1.514%  p95|.|= 3.641%  mean|z_err|= 30.27 mm
+  d=3 m: mean= -0.106%  std= 2.634%  mean|.|= 2.104%  p95|.|= 5.238%  mean|z_err|= 63.11 mm
+  d=4 m: mean= -0.783%  std= 3.491%  mean|.|= 2.846%  p95|.|= 6.687%  mean|z_err|=113.86 mm
+  d=5 m: mean= -0.393%  std= 4.222%  mean|.|= 3.245%  p95|.|= 7.875%  mean|z_err|=162.24 mm
+  d=6 m: mean= -1.380%  std= 5.033%  mean|.|= 4.116%  p95|.|=10.865%  mean|z_err|=246.99 mm
+
+6 m headline: signed mean=-1.380%, std=5.033%, mean|error|=4.116%, p95|error|=10.865%, mean |z error|=246.99 mm
+------------------------------------------------------------------------------
+[3] yaw reprojection search (t fixed, pitch=15 deg, true yaw=30 deg)
+------------------------------------------------------------------------------
+seed        : 20261028
+grid points : 281
+noise-free minimum yaw: 30.000 deg, RMS: 0.000000 px
+cost at true 30.0 deg: 0.000000 px
+
+100 noisy scans (0.5 px):
+  grid-argmin yaw error              mean=   0.0300 deg  std=  1.4492 deg median=   0.0000 deg  p95|.|=   2.5250 deg
+  quadratic-refined yaw error        mean=   0.0489 deg  std=  1.4408 deg median=   0.1178 deg  p95|.|=   2.5697 deg
+  minimum corner RMS                 mean=   0.6388 px  std=  0.1896 px median=   0.6238 px  p95|.|=   0.9325 px
+grid estimates min/max: 26.5 / 34.0 deg; unique values: [26.5, 27.0, 27.5, 28.0, 28.5, 29.0, 29.5, 30.0, 30.5, 31.0, 31.5, 32.0, 32.5, 33.5, 34.0]
+raw bias=0.0300 deg, raw std=1.4492 deg, refined bias=0.0489 deg, refined std=1.4408 deg
+------------------------------------------------------------------------------
+[4] camera -> gimbal -> world coordinate chain
+------------------------------------------------------------------------------
+R_camera2gimbal:
+[[ 0.  0.  1.]
+ [-1.  0.  0.]
+ [ 0. -1.  0.]]
+t_camera2gimbal (m): [0.2  0.08 0.05]
+R_gimbal2world (yaw 25 deg):
+[[ 0.906308 -0.422618  0.      ]
+ [ 0.422618  0.906308  0.      ]
+ [ 0.        0.        1.      ]]
+t_gimbal2world (m): [0. 0. 0.]
+det(R_c2g)=1.000000000000000, det(R_g2w)=1.000000000000000
+p_camera (m): [0. 0. 3.]
+p_gimbal (m): [3.2  0.08 0.05]
+p_world  (m): [2.866375 1.424883 0.05    ]
+direct T_world_camera * p_camera (m): [2.866375 1.424883 0.05    ]
+target point chain residual (m): 4.965e-16
+max |chain - homogeneous T| over 1000 points (m): 4.441e-16
+mean max abs error (m): 1.214e-16
+T_world_camera:
+[[ 0.422618  0.        0.906308  0.147452]
+ [-0.906308  0.        0.422618  0.157028]
+ [ 0.       -1.        0.        0.05    ]
+ [ 0.        0.        0.        1.      ]]
+world origin in gimbal / camera coordinates: [0. 0. 0.] [ 0.08  0.05 -0.2 ]
+------------------------------------------------------------------------------
+[5] effect of 15 deg armor pitch
+------------------------------------------------------------------------------
+seed        : 20261030
+corner pixel shifts (pitch=15 minus pitch=0), du, dv, norm:
+  TL: du=+0.9459 px  dv=+0.2418 px  |d|=0.9763 px
+  BL: du=-0.9419 px  dv=-0.2727 px  |d|=0.9806 px
+  BR: du=-0.9854 px  dv=-0.2663 px  |d|=1.0207 px
+  TR: du=+0.9894 px  dv=+0.2368 px  |d|=1.0174 px
+mean |shift|=0.9988 px, max |shift|=1.0207 px (BR), mean du=0.0020, mean dv=-0.0151
+fixed-t scan pitch15: min yaw=30.0 deg, RMS=0.000000 px
+fixed-t scan pitch0 : min yaw=30.0 deg, RMS=0.998961 px; mirror yaw=-30.0 deg, RMS=1.070900 px
+pitch0 + free t, noise-free fit: yaw=26.3031 deg (bias -3.6969), t=[-0.00009, -0.00006, 3.10542] m (dz=+3.514%), reproj RMS=0.9660 px, max=0.9877 px
+
+100 noisy pitch0 + free-t local fits (0.5 px):
+  yaw error                          mean=  -3.8808 deg  std=  4.4527 deg median=  -3.8227 deg  p95|.|=  12.0875 deg
+  t_z relative error                 mean=   3.3223 %  std=  3.5389 % median=   3.4257 %  p95|.|=   9.7927 %
+  reprojection RMS                   mean=   1.0541 px  std=  0.2245 px median=   1.0463 px  p95|.|=   1.3708 px
+------------------------------------------------------------------------------
+[6] distortion k1=-0.1, k2=0.05 (200 runs per distance)
+------------------------------------------------------------------------------
+seed        : 20261031
+D = [-0.1   0.05  0.    0.    0.  ]
+  d=1 m  ignore D             mean= +0.047%  std= 0.965%  mean|.|= 0.767%
+  d=1 m  explicit undistort   mean= -0.004%  std= 0.965%  mean|.|= 0.769%
+  d=1 m  solvePnP with D      mean= -0.004%  std= 0.965%  mean|.|= 0.769%
+    ignored-vs-undistorted mean|error| change: -0.002 percentage points
+  d=3 m  ignore D             mean= -0.356%  std= 2.647%  mean|.|= 2.122%
+  d=3 m  explicit undistort   mean= -0.362%  std= 2.647%  mean|.|= 2.122%
+  d=3 m  solvePnP with D      mean= -0.362%  std= 2.647%  mean|.|= 2.122%
+    ignored-vs-undistorted mean|error| change: -0.000 percentage points
+  d=6 m  ignore D             mean= -1.932%  std= 4.896%  mean|.|= 4.328%
+  d=6 m  explicit undistort   mean= -1.934%  std= 4.896%  mean|.|= 4.329%
+  d=6 m  solvePnP with D      mean= -1.934%  std= 4.896%  mean|.|= 4.329%
+    ignored-vs-undistorted mean|error| change: -0.000 percentage points
+
+Note: the centered target makes low-order radial distortion nearly symmetric;
+its depth effect is small in this setup.  The corrected and ignored branches
+differ mainly in tangential pixel position, not in z.
+
+==============================================================================
+all figures written:
+  /home/zh/RM/autoaim_course/assets/figures/pnp_geometry.png  (293920 bytes)
+  /home/zh/RM/autoaim_course/assets/figures/pnp_projection.png  (137876 bytes)
+  /home/zh/RM/autoaim_course/assets/figures/pnp_depth_noise.png  (146182 bytes)
+  /home/zh/RM/autoaim_course/assets/figures/pnp_yaw_scan.png  (222064 bytes)
+  /home/zh/RM/autoaim_course/assets/figures/pnp_frames.png  (176040 bytes)
+  /home/zh/RM/autoaim_course/assets/figures/pnp_pitch_bias.png  (289855 bytes)
+==============================================================================

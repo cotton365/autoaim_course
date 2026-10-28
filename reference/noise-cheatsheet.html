@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · 噪声与协方差</title><link rel="stylesheet" href="../assets/course.css"></head>
+<body><div class="wrap">
+<p class="kicker">Reference · 速查卡</p>
+<h1>噪声、协方差与一致性</h1>
+<p class="lede">Q/R 不是“误差大小”，是“不确定性的形状”。这一页把三套代码里的噪声模型放在一起。</p>
+
+<h2>1. 协方差的几何</h2>
+<pre class="formula">P = [[σx², ρσxσy],
+     [ρσxσy, σy²]]
+
+特征值 → 轴长²
+特征向量 → 轴方向</pre>
+<p>对角阵 = 椭圆轴对齐坐标轴；非对角 = 有相关性，椭圆倾斜。</p>
+
+<h2>2. 过程噪声</h2>
+<pre class="formula">CV 模型：
+G = [0.5dt², dt]ᵀ
+Q = σa² G Gᵀ
+
+wuhan 的车体系→世界系：
+Q_acc_odom = R · diag(qxyz) · Rᵀ</pre>
+
+<h2>3. 观测噪声</h2>
+<table>
+<tr><th>项目</th><th>R</th><th>随什么变</th></tr>
+<tr><td>sp</td><td><code>diag(4e-3, 4e-3, log|Δθ|+1, log|pitch|/200+0.09)</code></td><td>斜视角、俯仰</td></tr>
+<tr><td>wuhan</td><td><code>diag(σa²/2, σpx²/2, σpx²/2, σlen²/2)</code></td><td>灯条像素长度</td></tr>
+<tr><td>SHtech</td><td><code>σr²ur urᵀ + σt²ut utᵀ</code></td><td>距离、径向/切向</td></tr>
+</table>
+
+<h2>4. 马氏距离 / NIS / NEES</h2>
+<pre class="formula">d_M(x) = sqrt((x-μ)ᵀ Σ⁻¹ (x-μ))
+
+NIS  = yᵀ S⁻¹ y          y = z - h(x⁻), S = H P⁻ Hᵀ + R
+NEES = eᵀ P⁻¹ e          e = x - x̂
+
+NIS ~ χ²(m),  NEES ~ χ²(n)</pre>
+
+<table>
+<tr><th>df</th><th>5% 下</th><th>95% 上</th><th>均值</th></tr>
+<tr><td>1</td><td>0.0039</td><td>3.841</td><td>1</td></tr>
+<tr><td>2</td><td>0.103</td><td>5.991</td><td>2</td></tr>
+<tr><td>4</td><td>0.711</td><td>9.488</td><td>4</td></tr>
+</table>
+
+<h2>5. 调参直觉</h2>
+<table>
+<tr><th>现象</th><th>可能原因</th><th>动作</th></tr>
+<tr><td>跟踪抖、容易被检测噪声带跑</td><td>R 太小 / Q 太大</td><td>增大 R 或减小 Q</td></tr>
+<tr><td>响应慢、机动时跟不上</td><td>R 太大 / Q 太小</td><td>减小 R 或增大 Q</td></tr>
+<tr><td>NIS 长期 > 上界</td><td>P 太小 / R 太小 / 模型漏状态</td><td>检查 Q、R、状态维数</td></tr>
+<tr><td>NIS 长期 < 下界</td><td>P 太大 / R 太大</td><td>减小 Q/R，或检查是否过平滑</td></tr>
+<tr><td>换板时位置跳</td><td>数据关联错 / 车心模型错</td><td>先查关联，再查 r/l/h</td></tr>
+</table>
+
+<div class="box pitfall"><span class="label">不要孤立调 Q 或 R</span>
+KF 只关心 <code>P/R</code> 的相对大小。把 Q 和 R 同时放大 10 倍，稳态增益几乎不变，但瞬态会变。</div>
+
+<div class="footer"><a href="../README.md">← 课程目录</a> · <a href="project-map.html">项目地图 →</a></div>
+</div></body></html>

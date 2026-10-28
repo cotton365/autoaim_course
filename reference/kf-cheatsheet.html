@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · KF/EKF/ESKF/IEKF</title><link rel="stylesheet" href="../assets/course.css"></head>
+<body><div class="wrap">
+<p class="kicker">Reference · 速查卡</p>
+<h1>KF / EKF / ESKF / IEKF</h1>
+<p class="lede">一页纸版本。符号与三套代码一致：<code>x</code> 状态、<code>P</code> 协方差、<code>F</code> 状态转移、<code>Q</code> 过程噪声、<code>H</code> 观测雅可比、<code>R</code> 观测噪声、<code>K</code> 增益、<code>S</code> 创新协方差。</p>
+
+<h2>1. 一维 KF</h2>
+<pre class="formula">K  = P⁻ / (P⁻ + R)
+μ⁺ = μ⁻ + K (z - μ⁻)
+P⁺ = (1 - K) P⁻</pre>
+<p>等价于两个高斯相乘：<code>1/P⁺ = 1/P⁻ + 1/R</code>。</p>
+
+<h2>2. 多维 KF</h2>
+<pre class="formula">预测： x⁻ = F x                 P⁻ = F P Fᵀ + Q
+创新： y  = z - H x⁻            S  = H P⁻ Hᵀ + R
+增益： K  = P⁻ Hᵀ S⁻¹
+更新： x⁺ = x⁻ + K y             P⁺ = (I-KH)P⁻(I-KH)ᵀ + KRKᵀ</pre>
+
+<table>
+<tr><th>符号</th><th>维度</th><th>含义</th><th>调大</th></tr>
+<tr><td><code>P</code></td><td>n×n</td><td>状态不确定性</td><td>更信观测</td></tr>
+<tr><td><code>Q</code></td><td>n×n</td><td>预测模型不确定性</td><td>更信观测、更活</td></tr>
+<tr><td><code>R</code></td><td>m×m</td><td>观测不确定性</td><td>更信预测、更稳</td></tr>
+<tr><td><code>K</code></td><td>n×m</td><td>残差→状态修正</td><td>—</td></tr>
+</table>
+
+<h2>3. CV 模型的 Q</h2>
+<pre class="formula">G = [0.5 dt², dt]ᵀ
+Q = σ_a² G Gᵀ = σ_a² [[dt⁴/4, dt³/2],
+                       [dt³/2, dt²  ]]</pre>
+
+<h2>4. EKF / IEKF / ESKF</h2>
+<table>
+<tr><th>方法</th><th>线性化</th><th>更新</th><th>适用</th></tr>
+<tr><td>EKF</td><td>在 <code>x⁻</code> 一次</td><td><code>x⁺=x⁻+K(z-h(x⁻))</code></td><td>弱非线性、算力紧</td></tr>
+<tr><td>IEKF</td><td>在 <code>x_k</code> 迭代</td><td><code>x_{k+1}=x_pri⊕K[z-h(x_k)+H(x_k⊖x_pri)]</code></td><td>强非线性、观测维度低</td></tr>
+<tr><td>ESKF</td><td>误差状态切空间</td><td><code>δ=K(z-h(x̂))</code>, <code>x̂←x̂⊕δ</code></td><td>有 SO(3) 姿态</td></tr>
+</table>
+
+<pre class="formula">ESKF 注入：
+  c ← c + δc
+  R ← R · Exp(δθ)
+
+ESKF 求差：
+  δc = c1 - c2
+  δθ = Log(R2ᵀ R1)</pre>
+
+<h2>5. 一致性检验</h2>
+<pre class="formula">NIS  = yᵀ S⁻¹ y          ~ χ²(m)
+NEES = (x-x̂)ᵀ P⁻¹ (x-x̂)  ~ χ²(n)
+
+χ²₄: 5% 下分位 0.711, 95% 上分位 9.488, 均值 4
+χ²₂: 95% 上分位 5.991
+χ²₁: 95% 上分位 3.841</pre>
+
+<div class="box pitfall"><span class="label">常见错误</span>
+把 0.711 当“95% 上界”。它是 4 自由度卡方的 5% <strong>下</strong>分位；健康滤波器的 NIS 有 95% 的概率大于它。</div>
+
+<h2>6. 三项目对照</h2>
+<table>
+<tr><th></th><th>sp</th><th>wuhan</th><th>SHtech</th></tr>
+<tr><td>滤波</td><td>EKF</td><td>ESKF</td><td>IESEKF + 4×KF</td></tr>
+<tr><td>状态</td><td>11</td><td>13</td><td>11</td></tr>
+<tr><td>H</td><td>解析</td><td>数值</td><td>解析</td></tr>
+<tr><td>姿态</td><td>yaw</td><td>SO(3)</td><td>yaw</td></tr>
+<tr><td>迭代</td><td>1</td><td>5</td><td>5</td></tr>
+</table>
+
+<h2>7. 协方差复习</h2>
+<pre class="formula">Cov(X,Y) = E[(X−EX)(Y−EY)] = E[XY] − EX·EY
+P = E[(x−μ)(x−μ)ᵀ]
+  = [[Var(X), Cov(X,Y)],
+     [Cov(X,Y), Var(Y)]]
+P = VΛVᵀ，椭圆轴长 = sqrt(λ)
+y = Ax + b → Cov(y) = A P Aᵀ</pre>
+<p>完整推导（从高中期望/方差讲起）：<a href="../lessons/0001b-covariance.html">协方差补充页</a>。</p>
+
+<div class="footer"><a href="../README.md">← 课程目录</a> · <a href="pnp-cheatsheet.html">PnP 速查 →</a></div>
+</div></body></html>

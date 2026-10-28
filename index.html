@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自瞄预测课 · 从 KF/PnP 到三套 RoboMaster 代码</title>
+<link rel="stylesheet" href="assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Course · RoboMaster Auto-Aim Prediction</p>
+<h1>自瞄预测课<br><span style="font-size:.62em;color:#6d6a64;font-weight:400">从 KF/PnP 到三套 RoboMaster 代码</span></h1>
+<p class="lede">一套“能落到代码变量名”的短课：先补 KF/PnP/噪声，再把 sp_vision_25、wuhan、SHtech 三套预测链路拆开对照，最后用数值实验验证每个结论。</p>
+<p class="meta"><span>6 节 + 1 补充</span><span>5 张速查卡</span><span>4 组数值后验</span><span>主报告：Markdown</span></p>
+
+<div class="box win"><span class="label">先看这个</span>
+如果你只想快速对照三套代码，直接读 <a href="三项目自瞄预测对照.md">《三项目自瞄预测对照》</a>。
+如果你想补基础，从第 1 课开始；每节课 25–35 分钟。
+</div>
+
+<h2>学习路径</h2>
+<div class="card-grid">
+<div class="card"><span class="tag">01 · 基础</span><h3><a href="lessons/0001-kf-from-gaussian.html">KF：从高斯乘法到 predict/update</a></h3><p>手算一维 KF，理解 P/F/Q/H/R/K。</p></div>
+<div class="card"><span class="tag">01b · 补充</span><h3><a href="lessons/0001b-covariance.html">协方差：定义、矩阵、椭圆</a></h3><p>从高中期望/方差推到 P=E[(x−μ)(x−μ)ᵀ]。</p></div>
+<div class="card"><span class="tag">02 · 基础</span><h3><a href="lessons/0002-pnp-and-frames.html">PnP：从四个像素到世界坐标</a></h3><p>针孔模型、solvePnP、重投影、yaw 搜索、15° 俯仰。</p></div>
+<div class="card"><span class="tag">03 · 基础</span><h3><a href="lessons/0003-noise-covariance-nis.html">噪声：Q/R、马氏距离、NIS</a></h3><p>协方差的形状、χ² 阈值、三套 R 的物理含义。</p></div>
+<div class="card"><span class="tag">04 · 项目</span><h3><a href="lessons/0004-three-pipelines.html">三套预测链路</a></h3><p>同一骨架的三种参数化：11D EKF / 13D ESKF / 双模型。</p></div>
+<div class="card"><span class="tag">05 · 深入</span><h3><a href="lessons/0005-ekf-eskf-iekf.html">EKF → ESKF → IEKF</a></h3><p>三种线性化、SO(3) 注入、IEKF 先验项。</p></div>
+<div class="card"><span class="tag">06 · 深入</span><h3><a href="lessons/0006-ballistic-and-time.html">弹道与时间对齐</a></h3><p>抛物线/阻力弹道、飞行时间不动点、提前量误差。</p></div>
+</div>
+
+<h2>三条并行线</h2>
+<table>
+<tr><th>线</th><th>内容</th><th>入口</th></tr>
+<tr><td>A · 基础</td><td>KF / 协方差 / PnP / 噪声</td><td><a href="lessons/0001-kf-from-gaussian.html">Lesson 1</a> · <a href="lessons/0001b-covariance.html">1b</a> · 2–3</td></tr>
+<tr><td>B · 项目</td><td>三套链路对照 + 代码行号</td><td><a href="三项目自瞄预测对照.md">主报告</a> + <a href="lessons/0004-three-pipelines.html">Lesson 4</a></td></tr>
+<tr><td>C · 后验</td><td>脚本、图、数值结论</td><td><a href="verify/kf_report.md">KF 报告</a> · <a href="verify/pnp_report.md">PnP 报告</a> · <a href="verify/projects_report.md">项目报告</a></td></tr>
+</table>
+
+<h2>速查卡</h2>
+<div class="card-grid">
+<div class="card"><h3><a href="reference/kf-cheatsheet.html">KF / EKF / ESKF / IEKF</a></h3><p>公式、变量表、一致性检验。</p></div>
+<div class="card"><h3><a href="reference/pnp-cheatsheet.html">PnP 与坐标系</a></h3><p>针孔、IPPE、重投影、坐标系链。</p></div>
+<div class="card"><h3><a href="reference/noise-cheatsheet.html">噪声与协方差</a></h3><p>Q/R、马氏距离、χ² 分位。</p></div>
+<div class="card"><h3><a href="reference/project-map.html">三项目代码地图</a></h3><p>按阅读顺序排列的函数/行号。</p></div>
+<div class="card"><h3><a href="reference/glossary.html">术语表</a></h3><p>状态、观测、关联、控制。</p></div>
+</div>
+
+<h2>数值后验</h2>
+<p>课程里每个“结论/疑点”都尽量配了脚本和数字。图在 <code>assets/figures/</code>，报告在 <code>verify/</code>：</p>
+<ul>
+<li><code>verify/verify_kf.py</code>：高斯乘法、协方差椭圆、NIS/NEES、EKF/IEKF/ESKF 对比。</li>
+<li><code>verify/verify_pnp.py</code>：投影/PnP 闭环、深度误差、yaw 搜索、15° 俯仰。</li>
+<li><code>verify/verify_projects.py</code>：sp 索引、NIS 阈值、SHtech 几何/IEKF/换板门控、wuhan 高弧。</li>
+<li><code>verify/verify_covariance.py</code>：协方差 5 点手算、样本分母、<code>Cov(Ax)=A Aᵀ</code>。</li>
+</ul>
+
+<div class="box mathbox"><span class="label">怎么用</span>
+先读课，再跑脚本，再看图。图和正文对不上时，以脚本和图为准，回来改正文。
+</div>
+
+<h2>文件地图</h2>
+<pre class="formula">autoaim_course/
+├── index.html                     ← 课程首页
+├── README.md                      ← 同样的说明（Markdown）
+├── 三项目自瞄预测对照.md           ← 主报告
+├── lessons/0001–0006 + 0001b.html   ← 六节课 + 协方差补充
+├── reference/*.html               ← 速查卡
+├── assets/course.css, quiz.js     ← 样式与测验
+├── assets/figures/*.png           ← 所有图
+├── verify/*.py, *_report.md       ← 数值后验
+└── learning-records/              ← 学习记录</pre>
+
+<div class="footer">
+开课方式：本机 <code>~/.agents/skills/teach/SKILL.md</code> 存在但被标记为 <code>disable-model-invocation</code>，
+不能通过 <code>skill</code> 工具加载；本工作区按该 skill 的目录规范手工搭建。所有课程内容可直接离线打开。
+</div>
+
+</div>
+</body>
+</html>
