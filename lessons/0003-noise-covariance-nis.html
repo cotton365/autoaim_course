@@ -11,140 +11,261 @@
 
 <p class="kicker">Lesson 0003 · 基础线</p>
 <h1>噪声：Q/R、马氏距离、NIS</h1>
-<p class="lede">这一节把“噪声”从“一个数”变成“有形状的协方差”，并解释 NIS 为什么能判断滤波器是否自洽。</p>
-<p class="meta"><span>预计 30 分钟</span><span>先修：协方差、高斯、χ² 分布</span><span>对应代码：三套项目的 <code>Q</code> / <code>R</code> / NIS</span></p>
+<p class="lede">从一个导航例子开始，先把“预测值、观测值、两个不确定度”算清楚，再落到 Q/R、NIS，最后看它们在自瞄里对应什么误差。</p>
+<p class="meta"><span>预计 40 分钟</span><span>先修：<a href="0001b-covariance.html">0001b 协方差</a></span><span>对应代码：三套项目的 <code>Q</code> / <code>R</code> / NIS</span></p>
 
 <div class="box win"><span class="label">本节结束时你能</span>
-解释 Q 和 R 分别控制什么；说出“各向异性 R”为什么长轴指向相机；手算一维 NIS；判断一个 NIS 阈值是“95% 上分位”还是“5% 下分位”。
+<ol>
+<li>用“预测值、观测值、两个不确定度”算出一次融合的 <code>K、x⁺、P⁺</code>；</li>
+<li>说清 <code>Q</code> / <code>R</code> 分别描述哪一路误差，调大它们怎么改变 <code>K</code>；</li>
+<li>从加速度噪声推出 <code>Q</code> 里的 <code>dt⁴/4、dt³/2、dt²</code>；</li>
+<li>用 NIS 判断一次观测和 <code>Q/R</code> 是否对得上。</li>
+</ol>
 </div>
 
-<h2>1. 协方差不是“误差大小”，是“误差的形状”</h2>
+<div class="box mathbox"><span class="label">本节路线</span>
+① 导航例子 → ② 四个量 → ③ 融合计算 → ④ Q/R → ⑤ Q 的 dt 项 → ⑥ NIS → ⑦ 自瞄里的误差 → ⑧ 代码对应。
+</div>
 
-<p>一维方差只告诉你“分布有多宽”。二维协方差还告诉你“往哪个方向宽”：</p>
+<h2>1. 先看一个导航例子</h2>
 
-<pre class="formula">P = [[σ_x²,     ρσ_xσ_y],
-     [ρσ_xσ_y,  σ_y²  ]]</pre>
-
-<p>它的特征向量是椭圆的轴，特征值的平方根是轴长。如果 <code>P</code> 不是对角阵，x 和 y 的误差是相关的：知道 x 偏大，就能推断 y 可能偏大。</p>
-
-<figure>
-<img src="../assets/figures/noise_anisotropy.png" alt="Anisotropic covariance ellipse">
-<figcaption>SHtech 的观测噪声 <code>R_xy = σ_r² u_r u_rᵀ + σ_t² u_t u_tᵀ</code>：长轴沿径向（指向相机），短轴沿切向。因为深度误差比切向误差大得多，椭圆被“拉长”在视线上。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
-</figure>
-
-<h2>2. Q 和 R：一个管“模型多不靠谱”，一个管“观测多不靠谱”</h2>
-
-<p>一维直觉：</p>
-
-<pre class="formula">K = P / (P + R)</pre>
+<p>手机导航里，位置有两路信息：</p>
 
 <ul>
-<li><code>R</code> 大：观测不可信 → <code>K</code> 小 → 更信预测 → 曲线更平滑，但响应慢；</li>
-<li><code>Q</code> 大：预测不可信 → <code>P</code> 大 → <code>K</code> 大 → 更信观测 → 跟踪更“活”，但更容易被噪声带跑。</li>
+<li><strong>预测</strong>：根据上一秒的位置和速度，推下一秒在 100 m，误差大约 ±5 m；</li>
+<li><strong>观测</strong>：GPS 这一次显示 108 m，误差大约 ±2 m。</li>
+</ul>
+
+<p>把两路信息写成四个量：</p>
+
+<table>
+<tr><th>量</th><th>例子</th><th>含义</th></tr>
+<tr><td>预测值 <code>x⁻</code></td><td>100 m</td><td>运动模型推出来的位置</td></tr>
+<tr><td>观测值 <code>z</code></td><td>108 m</td><td>GPS 这一次的读数</td></tr>
+<tr><td>预测不确定度 <code>P⁻</code></td><td>25 m²（σ=5 m）</td><td>预测有多不准</td></tr>
+<tr><td>观测不确定度 <code>R</code></td><td>4 m²（σ=2 m）</td><td>GPS 有多不准</td></tr>
+</table>
+
+<p>注意：<code>P⁻</code>、<code>R</code> 是方差，单位是 m²；开根号后的 <code>σ</code> 才是米。</p>
+
+<p>融合计算：</p>
+
+<pre class="formula">S  = P⁻ + R = 25 + 4 = 29
+K  = P⁻ / S = 25/29 = 0.862
+x⁺ = x⁻ + K(z − x⁻) = 100 + 0.862 × 8 = 106.90 m
+P⁺ = (1 − K)P⁻ = 3.45 m²
+σ⁺ = sqrt(3.45) = 1.86 m</pre>
+
+<p>三个结果的含义：</p>
+
+<ul>
+<li><code>K=0.862</code>：这次给 GPS 86% 的权重，预测占 14%；</li>
+<li><code>x⁺=106.9 m</code>：落在 100 和 108 之间，更靠近 GPS；</li>
+<li><code>P⁺=3.45 m²</code>：融合后的不确定度比 25 和 4 都小，σ 约 1.86 m。</li>
+</ul>
+
+<p>这里的“置信度”就是 <code>P</code> 的大小：<code>P</code> 越小，估计越集中。需要画范围时，用 1σ/2σ 椭圆；<code>P</code> 本身不是一个百分比。</p>
+
+<figure>
+<img src="../assets/figures/noise_intro_fusion.png" alt="Navigation fusion example">
+<figcaption>预测 <code>N(100,25)</code>、GPS 观测 <code>N(108,4)</code>、后验 <code>N(106.9,3.45)</code>。后验在两个峰之间，而且更窄。图由 <code>assets/make_noise_intro_figure.py</code> 生成。</figcaption>
+</figure>
+
+<h2>2. 这个例子在整套东西里的位置</h2>
+
+<table>
+<tr><th>内容</th><th>类型</th><th>解决什么</th></tr>
+<tr><td>PnP</td><td>算法</td><td>像素 ↔ 3D 位姿，给出观测 <code>z</code></td></tr>
+<tr><td>KF</td><td>算法</td><td>预测 + 更新，给出状态 <code>x</code> 和协方差 <code>P</code></td></tr>
+<tr><td><code>Q / R</code></td><td>参数</td><td>预测和观测各有多不可信，决定 <code>K</code> 信谁</td></tr>
+<tr><td><code>NIS / NEES</code></td><td>检验指标</td><td>实际残差和 <code>Q/R/P</code> 是否对得上</td></tr>
+</table>
+
+<p>PnP、KF 是算法；<code>Q</code>、<code>R</code> 是算法里的参数；<code>NIS</code>、<code>NEES</code> 是跑完之后的检验指标。这一章不引入新的滤波器。</p>
+
+<div class="box mathbox"><span class="label">“噪声”在这里指什么</span>
+指预测误差和观测误差的统计描述（方差/协方差），和图像去噪无关。
+</div>
+
+<p>KF 每一步都在融合两个不确定的东西：预测（模型）和观测（传感器）。<code>Q</code> 描述预测这一步额外增加多少不确定度，<code>R</code> 描述观测误差有多大；它们决定 <code>K</code> 更信谁。融合后的 <code>P</code> 描述估计还剩多少不确定。</p>
+
+<p class="small">协方差的定义、椭圆和 <code>A P Aᵀ</code> 在 <a href="0001b-covariance.html">0001b</a> 已经讲过，这里直接把它当作“误差的形状”来用。</p>
+
+<h2>3. Q 和 R 怎么改变 K</h2>
+
+<p>一维融合的权重是：</p>
+
+<pre class="formula">K = P⁻ / (P⁻ + R)</pre>
+
+<ul>
+<li><code>R</code> 大：观测不准 → <code>K</code> 小 → 更信预测 → 曲线更平滑，但响应慢；</li>
+<li><code>Q</code> 大：预测更不确定 → <code>P⁻</code> 大 → <code>K</code> 大 → 更信观测 → 跟踪更“活”，但更容易被噪声带跑。</li>
 </ul>
 
 <figure>
 <img src="../assets/figures/qr_gain.png" alt="Kalman gain vs R/P">
-<figcaption><code>K=P/(P+R)</code> 随 <code>R/P</code> 的变化。调参时不要孤立地看 Q 或 R，要看它们的<strong>比值</strong>。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+<figcaption><code>K=P⁻/(P⁻+R)</code> 随 <code>R/P⁻</code> 的变化。调参时看比值，不孤立看 <code>Q</code> 或 <code>R</code>。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
 </figure>
 
-<h3>Q 里的 dt⁴/4、dt³/2、dt² 从哪来</h3>
+<h2>4. Q 的来历：从加速度噪声到 dt 项</h2>
 
-<p>假设加速度是白噪声，方差 <code>σ_a²</code>，在 <code>dt</code> 内近似常数：</p>
+<p>导航例子里 <code>P⁻=25</code> 不是凭空来的：上一轮的 <code>P⁺</code> 经过 <code>F P Fᵀ</code> 放大，再加这一拍的 <code>Q</code>。<code>Q</code> 描述“目标在这一拍里可能加速/转向，而模型没算到”的那部分误差。</p>
+
+<p>CV 模型的状态是 <code>[p; v]</code>：位置和速度。把这一小段时间里的加速度记作 <code>a</code>。</p>
+
+<p><strong>第一步：写出带加速度的 p、v。</strong></p>
 
 <pre class="formula">p⁺ = p + v dt + 0.5 a dt²
-v⁺ = v + a dt
+v⁺ = v + a dt</pre>
 
-G = [0.5 dt², dt]ᵀ
-Q = G σ_a² Gᵀ = σ_a² [[dt⁴/4, dt³/2],
-                       [dt³/2, dt²  ]]</pre>
+<p><strong>第二步：把“匀速部分”和“加速度带来的偏差”分开。</strong></p>
 
-<p>这就是 sp/SHtech 的 <code>Q</code> 块。wuhan 多做了一步：把车体系的 <code>σ_a²</code> 旋转到世界系，<code>Q_acc_odom = R Q_body Rᵀ</code>，因为加速度噪声是相对车体的（前后/左右/上下），不是相对世界的。</p>
+<pre class="formula">[p⁺; v⁺] = [[1, dt], [0, 1]] [p; v] + [0.5dt²; dt] · a
+         = F x + G a
 
-<h2>3. 马氏距离：把“误差”除以“不确定性”</h2>
+F = [[1, dt], [0, 1]]
+G = [0.5dt²; dt]</pre>
 
-<p>欧氏距离 <code>||x - μ||</code> 把所有方向同等看待。马氏距离：</p>
+<p><code>F</code> 是匀速模型；<code>G</code> 描述加速度 <code>a</code> 怎么进状态：位置受 <code>0.5dt²</code> 影响，速度受 <code>dt</code> 影响。</p>
 
-<pre class="formula">d_M(x) = sqrt( (x-μ)ᵀ Σ⁻¹ (x-μ) )</pre>
+<p><strong>第三步：把 <code>a</code> 看成随机量。</strong></p>
 
-<p>它先把空间“白化”：沿方差大的方向，同样的偏差更“正常”；沿方差小的方向，一点点偏差就很异常。NIS 就是创新 <code>y = z - h(x⁻)</code> 的马氏距离平方：</p>
+<p>每一小段时间的加速度是一个随机数：均值为 0、方差为 <code>σ_a²</code>，前后两拍独立。这种随机加速度叫白噪声。它不进入状态，也不被估计，只是每一拍给位置和速度加一点偏差。</p>
 
-<pre class="formula">NIS = yᵀ S⁻¹ y,   S = H P⁻ Hᵀ + R</pre>
+<pre class="formula">E[a] = 0
+E[a²] = σ_a²
 
-<p>如果模型和噪声都设对了，<code>NIS ~ χ²(m)</code>，<code>m</code> 是观测维度。注意：<strong>NIS 的期望是 m，不是 0</strong>。4 维观测，健康时 NIS 平均约 4。</p>
+这一拍的噪声 = G a
+Q = E[(G a)(G a)ᵀ] = G · E[a²] · Gᵀ = σ_a² G Gᵀ</pre>
+
+<p><strong>第四步：把 <code>G Gᵀ</code> 乘开。</strong></p>
+
+<pre class="formula">G Gᵀ = [0.5dt²; dt] · [0.5dt², dt]
+     = [[(0.5dt²)², 0.5dt²·dt],
+        [dt·0.5dt², dt²]]
+     = [[dt⁴/4, dt³/2],
+        [dt³/2, dt²]]
+
+Q = σ_a² [[dt⁴/4, dt³/2],
+          [dt³/2, dt²]]</pre>
+
+<p>三个元素分别是：位置方差、位置-速度协方差、速度方差。同一拍加速度会同时改位置和速度，所以非对角线不为 0。单位也对得上：<code>Q[0,0]</code> 是 m²，<code>Q[0,1]</code> 是 m²/s，<code>Q[1,1]</code> 是 (m/s)²。</p>
 
 <figure>
-<img src="../assets/figures/kf_nis_nees.png" alt="NIS and NEES Monte Carlo">
-<figcaption>蒙特卡洛：NIS/NEES 应该落在 χ² 的 95% 区间内。如果长期贴边或越界，说明 Q/R 设错，或者模型漏了状态。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+<img src="../assets/figures/q_terms.png" alt="Q entries vs dt">
+<figcaption>三个 Q 元素随 <code>dt</code> 的增长速度不同：<code>dt⁴/4</code>、<code>dt³/2</code>、<code>dt²</code>。图由 <code>assets/make_q_figure.py</code> 生成。</figcaption>
 </figure>
 
-<h2>4. 一个具体的阈值陷阱</h2>
+<p><strong>数值感受：</strong>取 <code>dt=0.1</code>、<code>σ_a²=100</code>：</p>
 
-<p>sp 的 EKF 里：</p>
+<pre class="formula">Q = 100 × [[0.000025, 0.0005],
+           [0.0005,   0.01]]
+  = [[0.0025, 0.05],
+     [0.05,   1.0]]</pre>
+
+<p>速度方差增加 1.0，位置方差只增加 0.0025；两者通过 0.05 的协方差关联起来。</p>
+
+<h2>5. 马氏距离与 NIS</h2>
+
+<p>回到导航例子，检查这次 GPS 观测是否“正常”：</p>
+
+<pre class="formula">残差 y = z − x⁻ = 108 − 100 = 8
+S = P⁻ + R = 29
+NIS = y² / S = 64/29 = 2.21</pre>
+
+<p>一维 χ² 的 95% 上界是 <code>3.84</code>；<code>2.21 &lt; 3.84</code>，这次观测和模型对得上。</p>
+
+<p>一般地，<code>y</code> 是观测残差，<code>S</code> 是残差本来应有的协方差。<strong>马氏距离</strong>就是按 <code>S</code> 的椭圆把残差缩放后再量长度：</p>
+
+<pre class="formula">d_M = sqrt( yᵀ S⁻¹ y )
+NIS = yᵀ S⁻¹ y
+
+S = H P⁻ Hᵀ + R</pre>
+
+<p><code>NIS</code> 是马氏距离的平方。模型和噪声都设对时，<code>NIS ~ χ²(m)</code>，<code>m</code> 是观测维数；<code>NIS</code> 的期望是 <code>m</code>，不是 0。</p>
+
+<table>
+<tr><th>自由度</th><th>5% 下分位</th><th>95% 上分位</th><th>均值</th></tr>
+<tr><td>1</td><td>0.0039</td><td>3.841</td><td>1</td></tr>
+<tr><td>4</td><td>0.711</td><td>9.488</td><td>4</td></tr>
+</table>
+
+<p>sp 的代码里写的是：</p>
 
 <pre class="formula">constexpr double nis_threshold = 0.711;   // 注释：自由度=4，置信水平95%</pre>
 
-<p>4 自由度的 χ² 分布：</p>
-
-<pre class="formula">5% 下分位   ≈ 0.711
-95% 上分位  ≈ 9.488
-均值        = 4</pre>
-
-<p><code>0.711</code> 是“只有 5% 的概率低于它”的下分位，不是 95% 上分位。如果用 <code>NIS > 0.711</code> 判失败，一个<strong>健康</strong>的滤波器大约有 95% 的帧会被判失败。这不一定代表实际代码一定出错（可能 <code>R</code> 被放大，NIS 长期偏小），但注释和数值明显对不上，值得核对。</p>
+<p><code>0.711</code> 是 4 自由度的 <strong>5% 下分位</strong>，<code>9.488</code> 才是 95% 上分位。用 <code>NIS &gt; 0.711</code> 判失败，健康滤波器大约 95% 的帧都会被判失败。这个阈值和注释对不上，值得核对。</p>
 
 <figure>
 <img src="../assets/figures/proj_nis_threshold.png" alt="Chi-square threshold">
-<figcaption>χ²₄ 的概率密度：0.711 在左尾（5% 下分位），9.49 在右尾（95% 上分位）。判“异常”应该用右尾。图由 <code>verify/verify_projects.py</code> 生成。</figcaption>
+<figcaption><code>χ²₄</code> 的概率密度：0.711 在左尾（5% 下分位），9.49 在右尾（95% 上分位）。判“异常”用右尾。图由 <code>verify/verify_projects.py</code> 生成。</figcaption>
 </figure>
 
-<h2>5. 三套代码的 R 为什么不一样</h2>
+<h2>6. 自瞄里的误差长在哪</h2>
+
+<p>把导航例子换成自瞄：预测的是敌方装甲板的位置，观测是相机/PnP 给出的位置。</p>
+
+<ul>
+<li><strong>运动</strong>：车心平移；整车绕车心旋转；装甲板每 90° 换一块；</li>
+<li><strong>预测误差</strong>：CV 模型没有估计加速度/转向；两帧之间目标已经动了；换板瞬间位置跳变；</li>
+<li><strong>观测误差</strong>：角点像素抖动；距离越远，PnP 深度越不准；斜视角让深度/姿态更差；装甲板有 15° 俯仰。</li>
+</ul>
 
 <table>
-<tr><th>项目</th><th>R 的形式</th><th>物理直觉</th></tr>
-<tr><td>sp</td><td><code>diag(4e-3, 4e-3, log|Δθ|+1, log|pitch|+1/200+0.09)</code></td><td>斜视角越大，PnP 深度越不可信；距离噪声随俯仰略增</td></tr>
-<tr><td>wuhan</td><td><code>diag(σ_angle²/2, σ_px²/2, σ_px²/2, σ_len²/2)</code>，<code>σ_px∝L_px</code></td><td>灯条越长（越近），像素噪声绝对量越大；角度噪声固定</td></tr>
-<tr><td>SHtech</td><td><code>σ_r²u_ru_rᵀ + σ_t²u_tu_tᵀ</code>，<code>σ_r=0.2d</code>，<code>σ_t=0.0628d</code></td><td>径向深度误差 20%，切向是 3.6° 角度误差乘距离</td></tr>
+<tr><th>误差来源</th><th>进入哪里</th><th>直觉</th></tr>
+<tr><td>目标加速、转向</td><td><code>Q</code></td><td>预测跟不上机动</td></tr>
+<tr><td>采样间隔、换板</td><td><code>Q</code></td><td>两帧之间发生的变化</td></tr>
+<tr><td>像素抖动、远距离</td><td><code>R</code></td><td>观测位置不准</td></tr>
+<tr><td>斜视角、15° 俯仰</td><td><code>R</code> / 观测模型</td><td>深度方向误差更大</td></tr>
 </table>
 
-<p>三种做法的共同点：<strong>R 不是拍脑袋的常数，而是随距离/视角/像素长度变化的</strong>。这也是为什么同一个 <code>Q</code> 在不同距离下表现不一样——误差的“形状”变了。</p>
+<p>所以 <code>Q</code> 要跟目标运动/转速走，<code>R</code> 要跟距离、视角、像素长度走。R 在二维里常常是一个斜椭圆：深度方向长，切向短。</p>
 
-<h2>6. NEES：检查状态估计是否自洽</h2>
+<figure>
+<img src="../assets/figures/noise_anisotropy.png" alt="Anisotropic covariance ellipse">
+<figcaption>SHtech 的观测噪声 <code>R_xy = σ_r² u_r u_rᵀ + σ_t² u_t u_tᵀ</code>：长轴沿径向（指向相机），短轴沿切向。深度误差比切向误差大，椭圆在视线上被拉长。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
 
-<p>NIS 检查“观测残差”，NEES 检查“状态误差”：</p>
+<h2>7. 代码对应</h2>
 
-<pre class="formula">NEES = (x - x̂)ᵀ P⁻¹ (x - x̂)</pre>
+<table>
+<tr><th>项目</th><th><code>Q</code> 对应什么</th><th><code>R</code> 对应什么</th></tr>
+<tr><td>sp</td><td>每个轴的加速度方差 <code>v1=100</code></td><td>随斜视角/俯仰变大的 PnP 噪声</td></tr>
+<tr><td>wuhan</td><td>车体系加速度方差，旋转到世界系</td><td>灯条像素长度缩放的图像观测噪声</td></tr>
+<tr><td>SHtech</td><td><code>p_coord=1e2</code> 等分块</td><td>径向/切向各向异性的 <code>R</code></td></tr>
+</table>
 
-<p>真值未知时没法直接算 NEES，只能用蒙特卡洛仿真。如果 NEES 长期大于 χ² 上界，说明 <code>P</code> 太小（滤波器过度自信）；长期小于下界，说明 <code>P</code> 太大（滤波器不够自信）。这比“看曲线抖不抖”客观得多。</p>
+<p>代码只是把上一节的误差来源落到具体对象：装甲板的平移/旋转进 <code>Q</code>，PnP/灯条的像素误差进 <code>R</code>。</p>
 
-<div class="box mathbox"><span class="label">数值后验</span>
-2D 位置观测、4D 状态、200 次 × 50 步：NIS 均值 <strong>1.97</strong>（df=2），NEES 均值 <strong>3.85</strong>（df=4），
-95% 覆盖率分别为 <strong>95.07%</strong> / <strong>95.53%</strong>，都落在 χ² 带内。sp 的 <code>0.711</code> 是 χ²₄ 的 <strong>5% 下分位</strong>；
-健康滤波器有 <strong>95%</strong> 的帧会超过它。见 <code>verify/verify_kf.py</code> 和 <code>verify/projects_report.md</code>。
-</div>
+<h2>8. NEES 与自检</h2>
 
-<h2>7. 三问自检</h2>
+<p><code>NIS</code> 检查观测残差，<code>NEES</code> 检查状态误差：</p>
+
+<pre class="formula">NEES = (x − x̂)ᵀ (P⁺)⁻¹ (x − x̂)</pre>
+
+<p><code>NEES</code> 需要真值，通常只在仿真里算。长期大于 χ² 上界，说明 <code>P</code> 太小（过度自信）；长期小于下界，说明 <code>P</code> 太大（不够自信）。</p>
 
 <div class="quiz" data-answer="b">
-<p class="q">1. 4 维观测、滤波器完全自洽时，NIS 的期望是？</p>
-<button data-choice="a" data-why="NIS 是马氏距离平方，期望等于观测维度，不是 0。">0</button>
-<button data-choice="b" data-why="χ²(m) 的期望是 m，m=4。">4</button>
-<button data-choice="c" data-why="1 是 χ²(1) 的期望；这里观测维度是 4。">1</button>
-<div class="feedback"></div>
-</div>
-
-<div class="quiz" data-answer="c">
-<p class="q">2. SHtech 的 <code>R</code> 椭圆长轴为什么指向相机？</p>
-<button data-choice="a" data-why="长轴对应方差大的方向；切向误差比径向小。">因为切向误差更大</button>
-<button data-choice="b" data-why="R 不随目标旋转；它由视线方向构造。">因为目标在旋转</button>
-<button data-choice="c" data-why="径向是深度方向，σ_r=0.2d 远大于切向 σ_t=0.0628d，所以长轴沿径向。">因为深度误差更大</button>
+<p class="q">1. 导航例子里 <code>K=0.862</code> 说明什么？</p>
+<button data-choice="a" data-why="K 是观测的权重；0.862 表示更信观测。">更信预测</button>
+<button data-choice="b" data-why="K=P⁻/(P⁻+R)=25/29=0.862，观测权重 86%。">更信观测</button>
+<button data-choice="c" data-why="K=0.5 才是等权；0.862 明显偏向观测。">两者等权</button>
 <div class="feedback"></div>
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">3. 把 <code>Q</code> 调得很小，最直接的后果是？</p>
-<button data-choice="a" data-why="P 越来越小，K 越来越小，滤波器越来越不信观测。">增益变小，跟踪变迟钝</button>
-<button data-choice="b" data-why="Q 小不会让 K 变大；它让 P 变小。">增益变大，跟踪更抖</button>
+<p class="q">2. 把 <code>Q</code> 调得很小，最直接的后果是？</p>
+<button data-choice="a" data-why="Q 小→P⁻ 小→K 小→更不信观测，跟踪变迟钝。">增益变小，跟踪变迟钝</button>
+<button data-choice="b" data-why="Q 小不会让 K 变大；它让 P⁻ 变小。">增益变大，跟踪更抖</button>
 <button data-choice="c" data-why="Q 不影响观测噪声 R。">观测噪声变大</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">3. 一维例子算出 <code>NIS=2.21</code>，95% 上界 3.84，说明？</p>
+<button data-choice="a" data-why="2.21 小于 3.84，落在正常范围内。">观测异常</button>
+<button data-choice="b" data-why="NIS 需要和 χ² 上界比较，不能只看是否大于 0。">无法判断</button>
+<button data-choice="c" data-why="2.21 < 3.84，这次观测和模型一致。">观测正常</button>
 <div class="feedback"></div>
 </div>
 
@@ -154,7 +275,8 @@ Q = G σ_a² Gᵀ = σ_a² [[dt⁴/4, dt³/2],
 </div>
 
 <div class="footer">
-数值实验：<code>verify/verify_kf.py</code>（NIS/NEES）、<code>verify/verify_projects.py</code>（χ² 阈值）。主要来源：Labbe；Maybeck；Bar-Shalom 的跟踪教材。
+数值实验：<code>verify/verify_noise_intro.py</code>（导航例子）、<code>verify/verify_kf.py</code>（NIS/NEES）、<code>verify/verify_projects.py</code>（χ² 阈值）。
+主要来源：Labbe, <em>Kalman and Bayesian Filters in Python</em>；Maybeck, <em>Stochastic Models, Estimation, and Control</em>。
 </div>
 
 </div>

@@ -1,6 +1,6 @@
 # 数值后验：怎么跑、看什么
 
-三条主验证线 + 协方差补充各自独立，可以并行跑。所有脚本只用本机 `/usr/bin/python3`
+三条主验证线 + 协方差/噪声例子各自独立，可以并行跑。所有脚本只用本机 `/usr/bin/python3`
 （numpy 1.21、scipy 1.8、matplotlib 3.5、cv2 4.5）。
 
 ```bash
@@ -11,6 +11,7 @@ export MPLCONFIGDIR=/tmp/mpl-zh
 /usr/bin/python3 verify/verify_pnp.py
 /usr/bin/python3 verify/verify_projects.py
 /usr/bin/python3 verify/verify_covariance.py
+/usr/bin/python3 verify/verify_noise_intro.py
 ```
 
 输出：
@@ -19,6 +20,7 @@ export MPLCONFIGDIR=/tmp/mpl-zh
 - `verify/pnp_report.md`：投影/PnP 闭环、深度误差、yaw 搜索、15° 俯仰、坐标系。
 - `verify/projects_report.md`：三项目代码结论/疑点。
 - `verify/covariance_report.md`：协方差 5 点手算、样本分母、`Cov(Ax)=A Aᵀ`。
+- `verify/verify_noise_intro.py`：导航例子的 `K/x⁺/P⁺/NIS` 数值（无独立报告，输出即结论）。
 - `verify/verify_results.json`：`verify_projects.py` 的机器可读结果。
 - `assets/figures/*.png`：所有图。
 

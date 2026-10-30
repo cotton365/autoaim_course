@@ -19,7 +19,7 @@
 | 1 | [KF：从高斯乘法到 predict/update](./lessons/0001-kf-from-gaussian.html) | 能手算一维 KF，理解 `P/F/Q/H/R/K` | 概率密度、矩阵乘法 |
 | 1b | [补充：协方差：定义、矩阵、椭圆](./lessons/0001b-covariance.html) | 能说清 `P=E[(x−μ)(x−μ)ᵀ]`、椭圆、`A P Aᵀ` | 高中期望/方差 |
 | 2 | [PnP：从四个像素到世界坐标](./lessons/0002-pnp-and-frames.html) | 能解释 `solvePnP`、重投影、yaw 搜索、15° 俯仰 | 针孔模型、旋转矩阵 |
-| 3 | [噪声：Q/R、马氏距离、NIS](./lessons/0003-noise-covariance-nis.html) | 能判断“Q 调大/ R 调大”会发生什么 | 协方差、卡方分布 |
+| 3 | [噪声：Q/R、马氏距离、NIS](./lessons/0003-noise-covariance-nis.html) | 用导航例子算 `K/P⁺`，解释 Q/R、NIS 与自瞄误差 | [0001b 协方差](./lessons/0001b-covariance.html) |
 | 4 | [三套预测链路：同一骨架的三种参数化](./lessons/0004-three-pipelines.html) | 能画出三套代码的流程图并对照 | 1–3 |
 | 5 | [EKF → ESKF → IEKF：三种线性化](./lessons/0005-ekf-eskf-iekf.html) | 能解释 SO(3) 注入、迭代更新、先验项 | 1、3 |
 | 6 | [弹道与时间对齐：不动点迭代](./lessons/0006-ballistic-and-time.html) | 能推导抛物线/阻力弹道、解释提前量 | 1、2 |
