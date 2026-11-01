@@ -3,157 +3,190 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>0005 · EKF → ESKF → IEKF：三种线性化</title>
+<title>0005 · 预测到命中时刻：状态、噪声与三种线性化</title>
 <link rel="stylesheet" href="../assets/course.css">
 </head>
 <body>
 <div class="wrap">
 
-<p class="kicker">Lesson 0005 · 深入线</p>
-<h1>EKF → ESKF → IEKF：三种线性化</h1>
-<p class="lede">三套代码的差别，很大程度上是“在哪里线性化、线性化几次、误差用什么坐标表示”。这一节把这三个词拆开。</p>
-<p class="meta"><span>预计 35 分钟</span><span>先修：0001、0003</span><span>对应代码：<code>target.cpp</code> / <code>motion_model.hpp</code> / <code>IESEKF_Double_Armor.hpp</code> / <code>IESEKF.hpp</code></span></p>
+<p class="kicker">Lesson 0005 · 运动/滤波层</p>
+<h1>预测到命中时刻：状态、噪声与三种线性化</h1>
+<p class="lede">0004 给了带噪声的单板观测。这一节把车状态推到 <code>t_hit</code>：先看预测为什么会错，再看 EKF/ESKF/IEKF 各自修哪一类错。</p>
+<p class="meta"><span>预计 35 分钟</span><span>先修：0001、0003、0004</span><span>对应代码：<code>target.cpp</code> / <code>motion_model.hpp</code> / <code>IESEKF_Double_Armor.hpp</code></span></p>
 
 <div class="box win"><span class="label">本节结束时你能</span>
-解释 EKF 为什么在强非线性时会偏；说出 IEKF 的迭代公式和先验项的作用；解释 ESKF 的“名义状态 + 误差状态”和右乘注入；判断 SHtech 的先验项符号对不对。
+写出状态转移和 <code>P⁻ = FPFᵀ + Q</code>；说出 EKF/IEKF/ESKF 各自修什么故障；解释三套代码的“世界系”为什么不同；用 NIS 判断预测和观测是否对得上。
 </div>
 
-<h2>1. EKF：只线性化一次</h2>
+<h2>1. 预测的第一步：状态怎么走</h2>
 
-<p>观测 <code>z = h(x) + v</code> 是非线性的。EKF 在当前估计 <code>x⁻</code> 处做一阶泰勒：</p>
+<p>0004 讲清了观测：PnP 给的是单板位姿，不是车心。现在把自瞄真正要预测的车状态写成向量：</p>
 
-<pre class="formula">h(x) ≈ h(x⁻) + H (x - x⁻)
-H = ∂h/∂x |_{x⁻}
+<pre class="formula">x = [ c, v, θ, ω, r1, r2, h ]
 
-K = P⁻Hᵀ(HP⁻Hᵀ+R)⁻¹
+c⁻ = c + v·Δt
+θ⁻ = θ + ω·Δt
+R⁻ = R · Exp([0, 0, ω·Δt])      # wuhan 的 SO(3) 写法</pre>
+
+<p>协方差跟着走：</p>
+
+<pre class="formula">P⁻ = F P Fᵀ + Q
+F = ∂f/∂x |_{x}</pre>
+
+<p><code>Q</code> 是“模型没算到的那部分”。车会加速、会转向、会换板，这些都不在匀速模型里；<code>Q</code> 把它们折算成过程噪声。没有 <code>Q</code>，滤波器会越来越自信，最后对真实机动失去响应。</p>
+
+<div class="box mathbox"><span class="label">数值感受</span>
+目标在 4 m 处、横向速度 3 m/s，预测 0.15 s：横向走 <strong>0.45 m</strong>。一块小装甲板宽 0.135 m；如果瞄准当前位置，子弹到的时候已经偏了三个板宽。提前量不是“可选的优化”，是命中的前提。
+</div>
+
+<p>这里的 <code>t</code> 不是随便取的未来时刻，而是 <code>t_hit = t_now + latency + T_fly</code>。预测到 <code>t_hit</code> 只是第一步；怎么把 <code>T_fly</code> 闭合，是 0006 的事。</p>
+
+<h2>2. 预测为什么会偏：三个具体故障</h2>
+
+<p>不要把 EKF/ESKF/IEKF 当成三种“高级程度”。它们分别对应三类具体的预测故障：</p>
+
+<table>
+<tr><th>故障</th><th>现象</th><th>代码里的应对</th></tr>
+<tr><td>角度绕圈</td><td><code>θ</code> 从 +π 跳到 −π，或 <code>ω</code> 很大时一步转过半圈</td><td>sp/SHtech 用 <code>limit_rad</code> 把角度拉回；wuhan 直接用 SO(3)，不存 yaw 的标量</td></tr>
+<tr><td>强非线性</td><td>目标近、<code>ω</code> 大、单板斜视角，EKF 在 <code>x⁻</code> 处线性化一次不够</td><td>SHtech 用 IEKF/IESEKF 在迭代点反复线性化；wuhan 的 ESKF 也迭代 5 次</td></tr>
+<tr><td>姿态不是单 yaw</td><td>地面坡度、车体俯仰/横滚，单 yaw 模型把 roll/pitch 的误差吸收进 yaw</td><td>wuhan 估完整 <code>rot_x/rot_y/rot_z</code>；sp/SHtech 只估 yaw，靠安装/水平假设</td></tr>
+</table>
+
+<p>先有故障，再有滤波器。反过来说：如果目标远、角速度小、观测噪声大，EKF 的一次线性化就够用，迭代只是浪费算力。</p>
+
+<h2>3. 三种滤波器，三种修法</h2>
+
+<h3>EKF：在 <code>x⁻</code> 处线性化一次</h3>
+
+<pre class="formula">H = ∂h/∂x |_{x⁻}
+K = P⁻Hᵀ(HP⁻Hᵀ + R)⁻¹
 x⁺ = x⁻ + K(z - h(x⁻))</pre>
 
-<p>如果 <code>h</code> 弯曲得很厉害（比如目标很近、方位角变化大、旋转快），一阶近似就会偏：残差被映射到错误的方向，<code>P</code> 也会被低估。EKF 不会“错得离谱”，但会慢半拍、在强机动时抖。</p>
+<p>sp 用这种。优点是 <code>H</code> 可以解析、计算便宜；缺点是 <code>h</code> 弯得厉害时，残差会被映射到错误方向，<code>P</code> 也会被低估。</p>
 
-<figure>
-<img src="../assets/figures/kf_iekf.png" alt="EKF vs IEKF RMSE">
-<figcaption>range-bearing 跟踪：EKF 与 IEKF 的 RMSE。IEKF 在强非线性段更稳；但迭代不是免费的，每次迭代都要重算 <code>H</code> 和 <code>K</code>。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
-</figure>
-
-<h2>2. IEKF：线性化多次</h2>
-
-<p>IEKF 的想法：既然在 <code>x⁻</code> 处线性化不准，那就在当前迭代点 <code>x_k</code> 处反复线性化，直到收敛。标准公式：</p>
+<h3>IEKF：在迭代点反复线性化</h3>
 
 <pre class="formula">x_{k+1} = x_pri ⊕ K_k [ z - h(x_k) + H_k (x_k ⊖ x_pri) ]
-
 K_k = P_pri H_kᵀ (H_k P_pri H_kᵀ + R)⁻¹</pre>
 
-<p>它来自对后验做高斯-牛顿。把 <code>h(x)</code> 在 <code>x_k</code> 处展开：</p>
-
-<pre class="formula">h(x) ≈ h(x_k) + H_k (x ⊖ x_k)
-x ⊖ x_pri ≈ (x_k ⊖ x_pri) + (x ⊖ x_k)</pre>
-
-<p>代进“先验 + 观测”的二次代价，解出的 <code>x</code> 就是上面的更新。先验项 <code>H_k(x_k ⊖ x_pri)</code> 的作用：把“当前迭代点相对先验的偏移”补回观测残差，保证迭代收敛到 MAP，而不是只做一次 EKF。</p>
+<p>它来自对后验做高斯-牛顿。先验项 <code>H_k(x_k ⊖ x_pri)</code> 的作用，是把“当前迭代点相对先验的偏移”补回残差，保证迭代收敛到 MAP。</p>
 
 <div class="box pitfall"><span class="label">符号很容易写反</span>
-标准是 <code>+H(x_k ⊖ x_pri)</code>。SHtech 两处实现（<code>IESEKF_Double_Armor.hpp:243</code>、<code>IESEKF.hpp:221</code>）都写成 <code>+H(x_pri ⊖ x_k)</code>，差一个负号。标量线性例子 <code>x_pri=0,P=1,H=1,R=1,z=1</code> 下，标准 IEKF 一步到 0.5 并停住；代码符号会在 0.5 和 0 之间来回跳。数值实验见 <code>verify/kf_report.md</code> 和 <code>verify/projects_report.md</code>。
+标准是 <code>+H(x_k ⊖ x_pri)</code>。SHtech 两处实现（<code>IESEKF_Double_Armor.hpp:243</code>、<code>IESEKF.hpp:221</code>）写成 <code>+H(x_pri ⊖ x_k)</code>，差一个负号。标量线性例子 <code>x_pri=0, P=1, H=1, R=1, z=1</code>：标准 IEKF 一步到 0.5 并停住；代码符号在 0.5 和 0 之间来回跳，5 次迭代落点还取决于奇偶。range-bearing 100 次实验末步 RMSE 因此到 <strong>23.21 m</strong>。
 </div>
 
-<figure>
-<img src="../assets/figures/kf_iekf_scalar.png" alt="Scalar IEKF iteration">
-<figcaption>标量线性例子：标准 IEKF（绿）一步收敛；代码符号（红）在 0.5/0 之间振荡。线性系统本来不需要迭代，这个例子把符号问题放大了。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
-</figure>
-
-<h2>3. ESKF：把误差放到切空间</h2>
-
-<p>当状态里有旋转矩阵 <code>R</code>，直接对 <code>R</code> 做加法没有意义。ESKF 把状态拆成：</p>
+<h3>ESKF：把误差放到切空间</h3>
 
 <pre class="formula">x = x̂ ⊕ δx
 
 位置： c = ĉ + δc
-姿态： R = R̂ · Exp(δθ)</pre>
+姿态： R = R̂ · Exp(δθ)
 
-<p><code>δx</code> 是误差状态，生活在切空间（欧氏），所以可以用普通 KF 传播。<code>⊕</code> 是“注入”，<code>⊖</code> 是“求差”：</p>
+预测： x̂⁻ = f(x̂),  P⁻ = F P Fᵀ + Q
+更新： δ̂ = K(z - h(x̂)),  x̂ ← x̂ ⊕ δ̂</pre>
 
-<pre class="formula">inject(δ, x):   c ← c + δc,   R ← R · Exp(δθ)
-box_minus(x1,x2): δc = c1 - c2,  δθ = Log(R2ᵀ R1)</pre>
-
-<p>预测：</p>
-
-<pre class="formula">x̂⁻ = f(x̂)
-F   = ∂/∂δ [ f(x̂ ⊕ δ) ⊖ f(x̂) ]_{δ=0}
-P⁻  = F P Fᵀ + Q</pre>
-
-<p>更新：</p>
-
-<pre class="formula">H   = ∂h(x̂ ⊕ δ)/∂δ
-K   = P⁻Hᵀ(HP⁻Hᵀ+R)⁻¹
-δ̂   = K(z - h(x̂))
-x̂  ← x̂ ⊕ δ̂</pre>
-
-<p>右乘 <code>R·Exp(δθ)</code> 的含义：姿态误差作用在目标自身坐标系，不是世界系。这样 <code>P</code> 的旋转块不会被“旋转向量绕圈”污染，协方差更一致。</p>
+<p>旋转矩阵不能直接加 <code>δθ</code>；ESKF 把姿态误差放在切空间，用右乘 <code>R·Exp(δθ)</code> 注入。这样 <code>P</code> 的旋转块不会被“旋转向量绕圈”污染。wuhan 用这种，代价是 <code>H</code> 通常要数值求，计算更重。</p>
 
 <figure>
-<img src="../assets/figures/kf_eskf.png" alt="ESKF vs naive Euler EKF">
-<figcaption>SO(3) 上做预测：100 步后，朴素“rotvec 加法”的姿态误差约 <strong>0.92 rad</strong>、位置误差约 <strong>2.52 m</strong>；ESKF 分别约 <strong>0.11 rad</strong>、<strong>0.30 m</strong>。右图是滤波器自己预测的 1σ，朴素法的 <code>P</code> 也明显偏大。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+<img src="../assets/figures/kf_iekf.png" alt="EKF vs IEKF RMSE">
+<figcaption>range-bearing 跟踪：标准 IEKF 与 EKF 的末段精度接近，但首次更新的误差更低；代码符号变体直接发散。迭代不是免费的，每次都要重算 <code>H</code> 和 <code>K</code>。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
 </figure>
 
-<h2>4. 三套代码分别用哪种</h2>
+<figure>
+<img src="../assets/figures/kf_eskf.png" alt="ESKF vs naive rotvec">
+<figcaption>SO(3) 上做预测：直接把旋转向量相加会漂；ESKF 的右乘注入把姿态误差压住。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+</figure>
+
+<p>三套代码的对应关系：</p>
 
 <table>
-<tr><th>项目</th><th>滤波器</th><th>线性化点</th><th>H 怎么来</th><th>姿态</th></tr>
-<tr><td>sp</td><td>EKF</td><td><code>x⁻</code>，一次</td><td>解析链式法则</td><td>单 yaw，<code>limit_rad</code></td></tr>
-<tr><td>wuhan</td><td>ESKF</td><td>误差状态，迭代 5 次</td><td>误差坐标中心差分</td><td>SO(3) 右乘</td></tr>
-<tr><td>SHtech</td><td>IESEKF</td><td><code>x_k</code>，迭代 5 次</td><td>解析 H</td><td>单 yaw，<code>limit_rad</code></td></tr>
+<tr><th>项目</th><th>滤波器</th><th>线性化点</th><th><code>H</code> 怎么来</th><th>代价</th></tr>
+<tr><td>sp</td><td>EKF</td><td><code>x⁻</code>，一次</td><td>解析链式法则</td><td>最便宜；强非线性时偏</td></tr>
+<tr><td>wuhan</td><td>ESKF</td><td>误差状态，迭代 5 次</td><td>误差坐标中心差分</td><td>最贵；姿态一致性好</td></tr>
+<tr><td>SHtech</td><td>IESEKF</td><td><code>x_k</code>，迭代 5 次</td><td>解析 <code>H</code></td><td>中等；实现符号要小心</td></tr>
 </table>
 
-<p>注意：wuhan 的 ESKF 是“误差状态 + 迭代”，SHtech 的 IESEKF 是“名义状态 + 迭代”。两者都在更新阶段多次线性化，但误差坐标不同：前者在切空间，后者在普通向量空间（yaw 单独归一化）。</p>
+<h2>4. 坐标系：预测必须在同一个世界系里</h2>
 
-<h2>5. 什么时候值得迭代</h2>
+<p>三套代码都叫“世界系”，但不是同一个惯性系：</p>
 
-<p>不是所有场景都需要 IEKF/ESKF：</p>
+<pre class="formula">sp:     世界原点在云台；速度是相对云台
+SHtech: 世界原点在 IMU；速度是相对 IMU
+wuhan:  世界原点在 odom；瞄准前减云台速度</pre>
 
-<ul>
-<li>目标远、角速度小、观测噪声大：EKF 的一阶近似够用，迭代是浪费；</li>
-<li>目标近、角速度大、单板/斜视角：非线性强，迭代能明显降低线性化误差；</li>
-<li>姿态有 roll/pitch、地面坡度：用 ESKF，否则 yaw 模型会把 roll/pitch 的误差吸收进 yaw；</li>
-<li>算力紧：EKF 最便宜；ESKF 的数值 H 最贵。</li>
-</ul>
+<p>底盘自己也在跑。如果预测用的是“目标相对世界”的速度，而控制用的是“目标相对云台”的角度，二者之间要减掉底盘/云台的运动；否则会有一个系统性的提前量偏差。</p>
 
-<div class="box mathbox"><span class="label">数值后验</span>
-range-bearing、100 次 × 30 步：最终位置 RMSE EKF <strong>0.159 m</strong>，标准 IEKF <strong>0.159 m</strong>，
-代码符号变体 <strong>23.21 m</strong>（发散）；首次更新 RMSE 分别为 <strong>0.574 / 0.375 / 60.45 m</strong>。标量例子：标准 IEKF 一步到 0.5 并停住；代码符号在 0.5/0 间振荡，
-固定点 0.25，5 次迭代落点取决于奇偶。见 <code>verify/verify_kf.py</code>。
+<div class="box note"><span class="label">一个检查方法</span>
+把同一帧的目标位置分别投到 odom 和云台系，静止底盘时两个系只差一个固定变换；底盘一动，差的就是自身速度。预测前先问一句：这个速度是相对谁的？
 </div>
 
-<h2>6. 三问自检</h2>
+<h2>5. Q/R 和 NIS：怎么知道预测可不可信</h2>
+
+<p><code>Q</code> 管“模型有多不准”，<code>R</code> 管“观测有多不准”。它们共同决定 <code>K</code> 更信谁：</p>
+
+<pre class="formula">K = P⁻ / (P⁻ + R)          # 一维直觉
+Q 大 → P⁻ 大 → K 大 → 更信观测
+R 大 → K 小 → 更信预测</pre>
+
+<p>在自瞄里，<code>Q</code> 的来源是：目标加速、转向、换板、两帧之间的机动；<code>R</code> 的来源是：PnP 像素/深度、灯条端点、斜视角、15° 俯仰。把这两个来源分开，调参才有方向。</p>
+
+<p>NIS 用来检查“残差和 <code>S</code> 是否对得上”：</p>
+
+<pre class="formula">y = z - h(x⁻)
+S = H P⁻ Hᵀ + R
+NIS = yᵀ S⁻¹ y          # 期望 ≈ m（观测维数）</pre>
+
+<figure>
+<img src="../assets/figures/kf_nis_nees.png" alt="NIS and NEES consistency">
+<figcaption>一致的滤波器，NIS/NEES 的长期均值落在 χ² 的理论均值附近。图由 <code>verify/verify_kf.py</code> 生成。</figcaption>
+</figure>
+
+<p>sp 的代码里有一个阈值用法值得核对：<code>0.711</code> 是 χ²₄ 的 5% 下分位，不是 95% 上分位；用 <code>NIS &gt; 0.711</code> 判失败，健康滤波器约 95% 的帧都会被判失败。具体见 0003 的阈值表。</p>
+
+<h2>6. 三套代码的预测链</h2>
+
+<table>
+<tr><th>项目</th><th>预测做什么</th><th>代码</th><th>代价/限制</th></tr>
+<tr><td>sp</td><td>CV 预测 + 分段 <code>Q</code>，再算延迟和飞行时间</td><td><code>target.cpp:75</code>、<code>aimer.cpp:32</code></td><td>快；强机动/换板时 <code>Q</code> 要够大</td></tr>
+<tr><td>wuhan</td><td>1 kHz 预测 <code>c+=vdt</code>、<code>R←R·Exp</code>，批量更新</td><td><code>motion_model.hpp:181</code>、<code>armor_target.cpp:345</code></td><td>姿态一致；投影 <code>H</code> 贵</td></tr>
+<tr><td>SHtech</td><td>双模型：低速板模型 / 高速整车模型</td><td><code>Tracker.cpp:106</code>、<code>:887</code></td><td>覆盖速度段；切换阈值和滞回要调</td></tr>
+</table>
+
+<p>SHtech 的双模型是一个很工程化的回答：低速时整车模型对“只平移不旋转”不敏感，容易把平移误估成旋转；高速时板模型又跟不上换板。用 <code>|ω|</code> 在 0.7/2.7 两个阈值之间切换，把“模型选择”显式化。</p>
+
+<h2>7. 三问自检</h2>
 
 <div class="quiz" data-answer="b">
-<p class="q">1. IEKF 相比 EKF，核心区别是？</p>
-<button data-choice="a" data-why="IEKF 不改变噪声模型，改变的是线性化点。">用了不同的噪声模型</button>
-<button data-choice="b" data-why="IEKF 在更新阶段反复重线性化，逼近高斯-牛顿解。">多次重线性化观测</button>
-<button data-choice="c" data-why="IEKF 不要求状态是线性的。">把状态方程变成线性</button>
+<p class="q">1. 预测协方差里的 <code>Q</code>，最直接描述的是什么？</p>
+<button data-choice="a" data-why="观测噪声进的是 R。">传感器有多不准</button>
+<button data-choice="b" data-why="Q 把加速度、转向、换板等模型没算到的运动折算成过程噪声。">模型没算到的运动</button>
+<button data-choice="c" data-why="Q 不直接描述目标距离。">目标有多远</button>
 <div class="feedback"></div>
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">2. ESKF 里姿态误差怎么注入？</p>
-<button data-choice="a" data-why="直接相加会破坏旋转矩阵的正交性。">R ← R + δθ</button>
-<button data-choice="b" data-why="左乘是世界系扰动，不是目标自身切空间。">R ← Exp(δθ) · R</button>
-<button data-choice="c" data-why="右乘表示在目标自身坐标系上扰动，是 ESKF 的常用约定。">R ← R · Exp(δθ)</button>
+<p class="q">2. 状态里存旋转矩阵时，为什么用 ESKF 而不是直接加？</p>
+<button data-choice="a" data-why="ESKF 不会让计算更便宜，反而更贵。">因为 ESKF 计算更便宜</button>
+<button data-choice="b" data-why="ESKF 不改变观测模型。">因为 ESKF 不需要观测</button>
+<button data-choice="c" data-why="旋转矩阵直接加会破坏正交性；误差要放在切空间再注入。">旋转矩阵不能直接相加</button>
 <div class="feedback"></div>
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">3. 标准 IEKF 的先验项是？</p>
-<button data-choice="a" data-why="把当前迭代点相对先验的偏移补回残差。">+H(x_k ⊖ x_pri)</button>
-<button data-choice="b" data-why="这是 SHtech 代码里的写法，符号相反。">+H(x_pri ⊖ x_k)</button>
-<button data-choice="c" data-why="没有这一项就退化成普通 EKF 的一次更新。">没有先验项</button>
+<p class="q">3. NIS 长期明显大于上界，通常说明什么？</p>
+<button data-choice="a" data-why="残差比 S 声称的大，P 或 R 被低估，滤波器过度自信。">P/R 太小，滤波器过度自信</button>
+<button data-choice="b" data-why="NIS 大不是观测太多，而是残差和协方差不匹配。">观测数量太多</button>
+<button data-choice="c" data-why="NIS 不直接检查重力补偿。">重力补偿算错</button>
 <div class="feedback"></div>
 </div>
 
 <div class="lesson-nav">
-<a href="0004-three-pipelines.html">← 上一课：三套链路</a>
-<a href="0006-ballistic-and-time.html">下一课：弹道与时间 →</a>
+<a href="0004-three-pipelines.html">← 上一课：从四角到车状态</a>
+<a href="0006-ballistic-and-time.html">下一课：时间与开火 →</a>
 </div>
 
 <div class="footer">
-数值实验：<code>verify/verify_kf.py</code>、<code>verify/verify_projects.py</code>。主要来源：Sola, ESKF；Bell &amp; Cathey, IEKF。
+数值实验：<code>verify/verify_kf.py</code>、<code>verify/verify_projects.py</code>；完整公式见 <code>reference/kf-cheatsheet.html</code>。
 </div>
 
 </div>

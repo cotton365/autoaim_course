@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0007 · 多板决策：打哪一块，先打哪一块</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<div class="wrap">
+
+<p class="kicker">Lesson 0007 · 决策层</p>
+<h1>多板决策：打哪一块，先打哪一块</h1>
+<p class="lede">0006 解决了“什么时候打、打哪里”；这一节解决“打哪块、先打哪块”。多块板同时转，选错板会把时间花在等窗口上。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：0005、0006</span><span>对应代码：<code>aimer.cpp</code> / <code>very_aimer.cpp</code> / <code>Planner.cpp</code></span></p>
+
+<div class="box win"><span class="label">本节结束时你能</span>
+定义 <code>p_hit / t_aim / t_window</code>；写出一个可解释的选板分数；解释为什么最近板不一定最好；说出三套代码各自用什么启发式、忽略了什么。
+</div>
+
+<h2>1. 一张图：每块板只在部分时间可打</h2>
+
+<p>目标在转，四块板的方位角跟着转。云台的可用扇区有限（sp 用 ±60°），所以每块板只在某个时间段里“不用大转云台就能打”：</p>
+
+<figure>
+<img src="../assets/figures/plate_windows.png" alt="Plate visibility windows">
+<figcaption>目标以 2 rad/s 旋转、可用扇区 ±60° 时，四块板的可见窗口。此刻（0.15 s）plate 0 还能打约 0.37 s，plate 3 要等到 0.26 s 才进入扇区，但一旦进入能持续到 1.31 s。图由 <code>assets/make_selection_figure.py</code> 生成。</figcaption>
+</figure>
+
+<p>这张图只固定了云台角度；真实系统里云台会转，窗口会跟着变。但它已经说明一件事：<strong>“现在离得最近”与“下一步最值得打”不是同一个问题</strong>。</p>
+
+<h2>2. 三个指标：p_hit、t_aim、t_window</h2>
+
+<table>
+<tr><th>指标</th><th>含义</th><th>怎么估</th></tr>
+<tr><td><code>p_hit</code></td><td>这一枪命中的概率</td><td>角尺寸 <code>α≈w/d</code> 与总不确定度（预测 + 弹道 + 云台）比较；再乘可见性</td></tr>
+<tr><td><code>t_aim</code></td><td>云台从当前角到开火角的时间</td><td><code>Δangle/ω_max</code> 加上加速/稳定时间；离得越远越久</td></tr>
+<tr><td><code>t_window</code></td><td>这块板还能留在可打扇区里的时间</td><td>由预测的 <code>θ(t), ω</code> 和扇区边界算；转得快窗口短</td></tr>
+<tr><td><code>Δangle</code></td><td>需要转多少角度</td><td>“要不要动”的直接度量</td></tr>
+<tr><td><code>visible</code></td><td>是否被遮挡、是否正面朝枪口</td><td>检测置信度、板法向与视线夹角</td></tr>
+</table>
+
+<p><code>p_hit</code> 不需要算得很精。一个够用的近似：把角度误差看成零均值高斯，标准差 <code>σ</code> 由预测协方差、弹道散布、云台跟踪误差合成；装甲板角宽 <code>α</code>，则</p>
+
+<pre class="formula">p_hit ≈ P(|e| < α/2) = erf( α / (2√2 σ) )</pre>
+
+<p>如果 <code>σ</code> 比 <code>α/2</code> 小很多，<code>p_hit</code> 接近 1；如果 <code>σ</code> 更大，命中率迅速掉。这个式子把“难不难打”变成了一个可比较的数。</p>
+
+<h2>3. 分数与门限</h2>
+
+<p>最直接的目标是“单位时间打中最多”。对单块板，一个可解释的分数是：</p>
+
+<pre class="formula">score_i = p_hit_i / (t_aim_i + t_settle)
+
+约束：
+  p_hit_i ≥ p_min                 # 太难的板不打
+  t_aim_i ≤ t_window_i            # 转过去时板已经跑了，不打</pre>
+
+<p>也可以写成“命中率减去时间惩罚”：</p>
+
+<pre class="formula">score_i = p_hit_i - λ · t_aim_i</pre>
+
+<p><code>λ</code> 就是“速度 vs 难易”的权重。它不是固定的：残局/少弹药时更看重 <code>p_hit</code>，<code>λ</code> 小；开阔地/多目标时更看重节奏，<code>λ</code> 大。工程上通常先定一个最小命中概率门限，再在可行板里选时间最短的；这比直接调 <code>λ</code> 更稳。</p>
+
+<div class="box note"><span class="label">滞回</span>
+锁定一块板后，不要因为一帧的分数抖动就换板。只有当另一块板的分数超过当前板的 <code>1+h</code> 倍（例如 <code>h=0.2</code>）才切换。否则云台会在两块板之间来回摆，谁也打不准。
+</div>
+
+<h2>4. 三套代码怎么应对</h2>
+
+<table>
+<tr><th>项目</th><th>选板逻辑</th><th>它解决了什么</th><th>它没解决什么</th></tr>
+<tr><td>sp</td><td><code>choose_aim_point</code>：60° 扇区内选板，<code>lock_id</code> 锁定；小陀螺时选“好打”的板</td><td>避免大角度换板；锁定后稳定</td><td>没有显式 <code>p_hit</code>/<code>t_window</code> 代价；阈值靠调</td></tr>
+<tr><td>wuhan</td><td>FSM：单板 / 双板 / 中心 / 对板，按状态切换</td><td>不同战场态势用不同策略；和 MPC 配合</td><td>状态转移是手写的；没有单位时间命中率优化</td></tr>
+<tr><td>SHtech</td><td>按 <code>|ω|</code> 分 0.7/2.7 三档；<code>Planner.cpp:109</code> 四种策略，<code>:472</code> 最近板</td><td>低速/高速用不同模型和策略；工程上稳</td><td>“最近板”不是“最优板”；策略切换靠阈值</td></tr>
+</table>
+
+<p>三套代码都是<strong>启发式</strong>，不是调度器。它们回答的是“现在这块板能不能打”，没有显式回答“接下来 1 秒打哪几块最划算”。这正是可以继续做的方向。</p>
+
+<h2>5. 一个可落地的决策流程</h2>
+
+<pre class="formula">candidates = 预测每块板在 t_hit 的位姿
+for each plate:
+    visible = 遮挡/朝向检查
+    p_hit   = f(角尺寸, σ_pred, σ_ballistic)
+    t_aim   = gimbal_time(current_angle, aim_angle)
+    t_window= time_until_leave_sector(θ(t), ω)
+
+feasible = { i | visible, p_hit ≥ p_min, t_aim ≤ t_window }
+if feasible is empty:
+    hold / 回中心 / 等下一块
+else:
+    choose argmax p_hit / (t_aim + t_settle)
+    if locked and new_score < (1+h) * locked_score:
+        keep locked
+fire when 0006 的开火门控通过</pre>
+
+<p>这条流程把前面三节接起来：<code>t_hit</code> 的位姿来自 0005，<code>t_aim</code>/开火门控来自 0006，<code>p_hit</code>/<code>t_window</code> 是这一层新增的。</p>
+
+<h2>6. 权重怎么配：一个示例</h2>
+
+<p>假设云台最大 180°/s，<code>t_settle=0.1 s</code>，三块候选板：</p>
+
+<table>
+<tr><th>板</th><th><code>p_hit</code></th><th><code>Δangle</code></th><th><code>t_aim</code></th><th><code>t_window</code></th><th><code>score=p_hit/(t_aim+t_settle)</code></th></tr>
+<tr><td>A</td><td>0.80</td><td>10°</td><td>0.06 s</td><td>0.37 s</td><td>5.0</td></tr>
+<tr><td>B</td><td>0.70</td><td>80°</td><td>0.44 s</td><td>0.90 s</td><td>1.30</td></tr>
+<tr><td>C</td><td>0.90</td><td>55°</td><td>0.31 s</td><td>0.20 s</td><td>不可行（<code>t_aim &gt; t_window</code>）</td></tr>
+</table>
+
+<p>A 的分数最高，选 A；C 虽然 <code>p_hit</code> 最高，但转过去时窗口已经关了，不能选。这个例子说明：<strong>命中概率最高的板，不一定是单位时间命中数最高的板</strong>。</p>
+
+<p>如果这一局必须命中（比如残局），可以把门限 <code>p_min</code> 调高，或者把分数改成 <code>p_hit - λ t_aim</code> 并减小 <code>λ</code>；如果要抢节奏，就增大 <code>λ</code> 或直接用 <code>p_hit/t_aim</code>。没有一套权重适合所有局面，关键是让权重有明确的战术含义，而不是拍脑袋。</p>
+
+<h2>7. 三问自检</h2>
+
+<div class="quiz" data-answer="b">
+<p class="q">1. 离云台最近的板，为什么不一定先打？</p>
+<button data-choice="a" data-why="距离不是选板的唯一因素，窗口和命中概率同样重要。">因为最近板总是最难打</button>
+<button data-choice="b" data-why="它可能马上转出窗口，或者命中概率低；要比较 score。">因为它可能窗口很短</button>
+<button data-choice="c" data-why="最近板的 p_hit 不一定低，但也不是必然最高。">因为最近板一定打不中</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="c">
+<p class="q">2. <code>t_aim &gt; t_window</code> 说明什么？</p>
+<button data-choice="a" data-why="这只说明转过去太慢，不说明弹道有问题。">弹道解算一定错了</button>
+<button data-choice="b" data-why="观测可能正常，问题在时间可行性。">观测一定丢了</button>
+<button data-choice="c" data-why="云台转到位时板已经离开可打扇区，这一枪不可行。">转过去时窗口已关闭</button>
+<div class="feedback"></div>
+</div>
+
+<div class="quiz" data-answer="a">
+<p class="q">3. 选板加滞回，主要是为了什么？</p>
+<button data-choice="a" data-why="避免分数抖动导致云台来回摆，保证连续射击的稳定。">避免频繁换板</button>
+<button data-choice="b" data-why="滞回不改变弹道模型。">提高弹速</button>
+<button data-choice="c" data-why="滞回不直接估计目标加速度。">估计目标加速度</button>
+<div class="feedback"></div>
+</div>
+
+<div class="lesson-nav">
+<a href="0006-ballistic-and-time.html">← 上一课：时间与开火</a>
+<a href="../index.html">课程目录 →</a>
+</div>
+
+<div class="footer">
+数值实验：<code>assets/make_selection_figure.py</code>；三项目选板/策略代码见主报告第 6.2 节。
+</div>
+
+</div>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

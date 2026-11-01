@@ -3,42 +3,63 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>0006 · 弹道与时间对齐：不动点迭代</title>
+<title>0006 · 时间与开火：命中时刻不是开火时刻</title>
 <link rel="stylesheet" href="../assets/course.css">
 </head>
 <body>
 <div class="wrap">
 
-<p class="kicker">Lesson 0006 · 深入线</p>
-<h1>弹道与时间对齐：不动点迭代</h1>
-<p class="lede">预测出“目标在命中时刻的位置”还不够：子弹要飞一段时间。这一节推导抛物线/阻力弹道，并解释为什么飞行时间是一个不动点。</p>
-<p class="meta"><span>预计 30 分钟</span><span>先修：0001、0002</span><span>对应代码：<code>trajectory.cpp</code> / <code>ballistic_trajectory.hpp</code> / <code>math_tools.hpp</code></span></p>
+<p class="kicker">Lesson 0006 · 时间/开火层</p>
+<h1>时间与开火：命中时刻不是开火时刻</h1>
+<p class="lede">0005 把状态推到 <code>t_hit</code>；但子弹要飞，云台要转。命中点和开火角之间隔着一条弹道，开火时刻和命中时刻之间隔着一段飞行时间。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：0002、0005</span><span>对应代码：<code>trajectory.cpp</code> / <code>ballistic_trajectory.hpp</code> / <code>Planner.cpp</code></span></p>
 
 <div class="box win"><span class="label">本节结束时你能</span>
-推导真空弹道的二次方程，说出高/低弧怎么选；写出阻力弹道的 <code>A,B,C</code>；解释 <code>T_fly</code> 不动点为什么收敛；估算“只算一次”会差多少。
+推导真空弹道的二次方程，说出高/低弧怎么选；写出阻力弹道的 <code>A,B,C</code>；解释 <code>T_fly</code> 不动点为什么收敛；估算“只算一次”会差多少；说清云台到位和开火窗口的关系。
 </div>
 
-<h2>1. 真空弹道：一个二次方程</h2>
+<h2>1. 两个时刻：t_hit 与 t_fire</h2>
 
-<p>目标在水平距离 <code>d</code>、高差 <code>h</code>，初速 <code>v0</code>，重力 <code>g</code>。设发射角 <code>θ</code>，飞行时间：</p>
+<p>自瞄的最终目标是“在 <code>t_hit</code> 让弹丸和装甲板相遇”。但弹丸不是瞬间到达的：</p>
 
-<pre class="formula">T = d / (v0 cosθ)</pre>
+<pre class="formula">t_hit = t_now + t_latency + T_fly
+t_fire = t_hit - T_fly</pre>
 
-<p>竖直方向：</p>
+<p>预测层给的是 <code>p_target(t_hit)</code>；控制层要在 <code>t_fire</code> 把云台指到“从这个角度打出去，能在 <code>t_hit</code> 命中”的角度。两者之间是弹道逆解：</p>
 
-<pre class="formula">h = v0 sinθ · T - ½ g T²
+<pre class="formula">p_hit = p_target(t_hit)
+(yaw_fire, pitch_fire) = BallisticInverse(p_hit, v0, g, drag)</pre>
+
+<figure>
+<img src="../assets/figures/timeline.png" alt="Three prediction timelines">
+<figcaption>三条链路都在算同一个 <code>t_hit = t_now + latency + T_fly</code>。sp/wuhan 用不动点迭代，SHtech 只算一次；它们都把“云台转到位的耗时”留给控制层，而不是塞进 <code>t_hit</code>。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+</figure>
+
+<p>把时间轴拆开：</p>
+
+<pre class="formula">sp:     frame t_k → track(t_k) → t_now → +delay → t_fire → +T_fly(iterate) → t_hit
+wuhan:  frame t_k → track → buffer → 1kHz predict(t_now) → +T_fly(iterate)+delay → t_hit
+SHtech: frame t_k → track → t_now → +(now-t_k)+latency+T_fly(one shot) → t_hit</pre>
+
+<h2>2. 弹道：从发射角到命中点</h2>
+
+<p>先看真空。目标在水平距离 <code>d</code>、高差 <code>h</code>，初速 <code>v0</code>，重力 <code>g</code>。设发射角 <code>θ</code>，飞行时间：</p>
+
+<pre class="formula">T = d / (v0 cosθ)
+
+h = v0 sinθ · T - ½ g T²
   = d tanθ - ½ g d² (1+tan²θ) / v0²</pre>
 
-<p>令 <code>u=tanθ</code>，整理成：</p>
+<p>令 <code>u=tanθ</code>，整理成二次方程：</p>
 
 <pre class="formula">(g d² / 2v0²) u² - d u + (g d² / 2v0² + h) = 0
 
 a = g d² / (2v0²)
 b = -d
 c = a + h
-u = (-b ± √(b²-4ac)) / (2a)</pre>
+u = (-b ± √(b² - 4ac)) / (2a)</pre>
 
-<p>两个解：高弧（<code>+√</code>）和低弧（<code>-√</code>）。低弧飞行时间短、弹道平，通常更适合自瞄；高弧在近距离可能打不高，远距离又飞得久。sp/SHtech 取短时间（低弧），wuhan 先取高弧、无效再低弧。</p>
+<p>两个解：<code>+√</code> 是高弧，<code>-√</code> 是低弧。低弧飞行时间短、弹道平，通常更适合自瞄；高弧在近距离会把弹道抬得很高，容易碰云台/超出俯仰，远距离又飞得久。sp 在 <code>trajectory.cpp:29</code> 比较 <code>t1/t2</code> 取短时间（低弧）；SHtech 用重力补偿近似低弧；wuhan 先取高弧、无效再低弧。</p>
 
 <figure>
 <img src="../assets/figures/ballistic_compare.png" alt="High/low arc and drag">
@@ -46,39 +67,31 @@ u = (-b ± √(b²-4ac)) / (2a)</pre>
 </figure>
 
 <div class="box pitfall"><span class="label">高弧陷阱</span>
-高弧解在数学上永远存在（只要判别式 ≥0），但飞行时间可能是低弧的 20 倍。如果代码“先取 p1”而没有检查时间/角度范围，远距离可能选中高抛弹道，提前量会大得离谱。
+高弧解在数学上只要判别式 ≥0 就存在，但飞行时间可能是低弧的 20 倍。wuhan 的 <code>solve_pitch()</code> 先返回 <code>p1</code>（高弧）；在 RM 常见距离，<code>p1</code> 经常超过 60° 被上层丢弃，只有在远距离/高初速/高阻力时才会真正选中。读代码时不要只看“返回了 p1”，要看调用方有没有角度/时间过滤。
 </div>
 
-<h2>2. 阻力弹道：wuhan 的近似</h2>
-
-<p>水平方向按二次阻力，竖直方向只受重力：</p>
+<p>wuhan 的阻力模型只把阻力加在水平方向，竖直方向仍只受重力：</p>
 
 <pre class="formula">x(t) = ln(1 + k v0 cosθ · t) / k
-z(t) = v0 sinθ · t - ½ g t²</pre>
+z(t) = v0 sinθ · t - ½ g t²
 
-<p>由 <code>x(T)=d</code>：</p>
+T = (e^{kd} - 1) / (k v0 cosθ)
 
-<pre class="formula">T = (e^{kd} - 1) / (k v0 cosθ)</pre>
-
-<p>代入 <code>z(T)=h</code>，令 <code>u=tanθ</code>：</p>
-
-<pre class="formula">A = (e^{kd} - 1)/k
+A = (e^{kd} - 1)/k
 C = A/v0
 B = ½ g C²
+B u² - A u + (B + h) = 0</pre>
 
-B u² - A u + (B + h) = 0
-T = (e^{kd} - 1) / (k v0 cosθ)</pre>
+<p>这是一个工程近似；<code>k</code> 通常很小，远距离才明显。它的好处是仍有闭式解，坏处是低估了竖直方向的阻力。</p>
 
-<p>这个模型只把阻力加在水平方向，竖直方向仍是真空，是一个工程近似；<code>k</code> 通常很小（0.001 量级），远距离才明显。</p>
+<h2>3. T_fly 是不动点</h2>
 
-<h2>3. 飞行时间是不动点</h2>
-
-<p>命中时刻：</p>
+<p>命中时刻依赖飞行时间，飞行时间又依赖命中点：</p>
 
 <pre class="formula">t_hit = t_now + t_latency + T_fly
 T_fly = range( p_target(t_hit) ) / (v0 cosθ)</pre>
 
-<p><code>T_fly</code> 出现在等式两边，所以是不动点。迭代：</p>
+<p>所以 <code>T_fly</code> 是不动点。迭代：</p>
 
 <pre class="formula">T_0 = range(t_now + latency) / v0
 for k = 0..N:
@@ -104,15 +117,33 @@ aim = p_now + v · (latency + T)</pre>
 <pre class="formula">ΔT ≈ (v_target · T) / v0
 Δaim ≈ v_target · ΔT</pre>
 
-<p>目标 4 m/s、<code>T=0.15 s</code>、<code>v0=23</code>：<code>ΔT≈0.026 s</code>，<code>Δaim≈10 cm</code>。对 13.5 cm 的装甲板，这已经是一个不可忽略的偏差。所以“一次性”不是等价替换，而是用精度换计算量。</p>
+<p>目标 4 m/s、<code>T=0.15 s</code>、<code>v0=23</code>：<code>ΔT≈0.026 s</code>，<code>Δaim≈10 cm</code>。对 13.5 cm 的装甲板，这已经是一个不可忽略的偏差。所以“一次性”是用精度换计算量，不是等价替换。</p>
 
-<h2>5. 延迟是怎么叠的</h2>
+<h2>5. 云台到位与开火窗口</h2>
 
-<pre class="formula">sp:     t_fire = t_frame + (now - t_frame) + delay
-wuhan:  t_hit  = now + T_fly + prediction_delay
-SHtech: total  = (now - t_frame) + comm_latency + T_fly</pre>
+<p>预测层给出 <code>t_hit</code> 的命中点，控制层要回答两个问题：</p>
 
-<p>三套代码都没有把“云台从当前角度转到目标角度”的时间算进 <code>t_hit</code>，而是通过“轨迹跟踪 + 开火门控”保证开枪时云台已经到位。这是控制层和预测层的分工：预测层给“命中点”，控制层判断“现在能不能打”。</p>
+<ul>
+<li>云台能不能在 <code>t_fire</code> 之前转到 <code>yaw_fire, pitch_fire</code>？</li>
+<li>转到之后，角度误差是否小到可以开火？</li>
+</ul>
+
+<p>装甲板在图像里的角尺寸约 <code>α ≈ w/d</code>。如果云台角误差大于 <code>α/2</code>，子弹就可能擦边。工程上不直接算“命中概率”，而是用“角度误差 + 角速度 + 稳定时间”做开火门控：</p>
+
+<pre class="formula">error = angle(current_gimbal, aim_angle)
+if error < α/2 and |ω_gimbal| < threshold and stable_time > t_settle:
+    fire()</pre>
+
+<p>三套代码的分工：</p>
+
+<table>
+<tr><th>项目</th><th>时间/弹道</th><th>开火门控</th></tr>
+<tr><td>sp</td><td><code>aimer.cpp:32</code> 延迟 + 飞行时间不动点；<code>trajectory.cpp</code> 弹道</td><td><code>Shooter</code> 的稳定/角度门控</td></tr>
+<tr><td>wuhan</td><td><code>very_aimer.cpp:224</code> 命中点迭代；<code>ballistic_trajectory.hpp:43</code> 阻力弹道</td><td><code>fire_advice</code> + MPC 轨迹误差</td></tr>
+<tr><td>SHtech</td><td><code>Planner.cpp:536</code> 重力补偿；<code>:568</code> 参考轨迹</td><td>轨迹跟踪误差 + 策略层开火条件</td></tr>
+</table>
+
+<p>“云台从当前角转到目标角”的时间没有塞进 <code>t_hit</code>，而是通过“参考轨迹 + 跟踪误差 + 开火门控”保证开枪时已经到位。这是预测层和控制层的分工：预测层给“命中点”，控制层判断“现在能不能打”。</p>
 
 <h2>6. MPC 参考轨迹为什么是“每个时刻的命中角”</h2>
 
@@ -122,7 +153,7 @@ SHtech: total  = (now - t_frame) + comm_latency + T_fly</pre>
     p_t = target.predict(t)
     cp(t) = gimbal_angle_to_hit(p_t)   # 若在 t 时刻开火，云台该指哪</pre>
 
-<p>这条轨迹的横轴是“开火时刻”，纵轴是“对应的云台角”。MPC 跟踪它，等价于“让云台提前走到未来某个开火时刻所需的角”，从而在连续射击时保持超前。中心时刻取 <code>now</code> 或 <code>t_hit</code>，取决于实现。</p>
+<p>这条轨迹的横轴是“开火时刻”，纵轴是“对应的云台角”。MPC 跟踪它，等价于“让云台提前走到未来某个开火时刻所需的角”，从而在连续射击时保持超前。中心时刻取 <code>now</code> 还是 <code>t_hit</code>，取决于实现。</p>
 
 <h2>7. 三问自检</h2>
 
@@ -136,7 +167,7 @@ SHtech: total  = (now - t_frame) + comm_latency + T_fly</pre>
 
 <div class="quiz" data-answer="c">
 <p class="q">2. 为什么 <code>T_fly</code> 要迭代？</p>
-<button data-choice="a" data-why="T_fly 与目标位置有关，目标位置又依赖 T_fly。">因为重力会变</button>
+<button data-choice="a" data-why="重力在近距离基本不变，不是迭代的主因。">因为重力会变</button>
 <button data-choice="b" data-why="弹速在飞行中基本不变；迭代是因为几何耦合。">因为弹速会衰减</button>
 <button data-choice="c" data-why="命中点依赖飞行时间，飞行时间又依赖命中点。">因为命中点依赖它</button>
 <div class="feedback"></div>
@@ -151,8 +182,8 @@ SHtech: total  = (now - t_frame) + comm_latency + T_fly</pre>
 </div>
 
 <div class="lesson-nav">
-<a href="0005-ekf-eskf-iekf.html">← 上一课：EKF/ESKF/IEKF</a>
-<a href="../index.html">课程目录 →</a>
+<a href="0005-ekf-eskf-iekf.html">← 上一课：预测到命中时刻</a>
+<a href="0007-plate-selection.html">下一课：多板决策 →</a>
 </div>
 
 <div class="footer">

@@ -3,159 +3,173 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>0004 · 三套预测链路：同一骨架的三种参数化</title>
+<title>0004 · 从四角到车状态：PnP 能给什么，不能给什么</title>
 <link rel="stylesheet" href="../assets/course.css">
 </head>
 <body>
 <div class="wrap">
 
-<p class="kicker">Lesson 0004 · 项目线</p>
-<h1>三套预测链路：同一骨架的三种参数化</h1>
-<p class="lede">这一节把前面的 KF/PnP 拼成完整链路，对照 sp_vision_25、wuhan、SHtech 三套代码：它们都在估同一辆车，只是“状态怎么摆、观测怎么量、时间怎么推”不同。</p>
-<p class="meta"><span>预计 35 分钟</span><span>先修：0001–0003</span><span>主报告：<code>三项目自瞄预测对照.md</code></span></p>
+<p class="kicker">Lesson 0004 · 机械/观测层</p>
+<h1>从四角到车状态：PnP 能给什么，不能给什么</h1>
+<p class="lede">自瞄的第一件事，是把一帧图像里的四个角点，变成“车在哪、朝哪、转多快”。这一节只做这一层：几何、PnP、可观测性、关联；滤波留到下一节。</p>
+<p class="meta"><span>预计 30 分钟</span><span>先修：0002</span><span>对应代码：<code>target.cpp</code> / <code>armor_target.cpp</code> / <code>Tracker.cpp</code></span></p>
 
 <div class="box win"><span class="label">本节结束时你能</span>
-画出三套代码的预测流程图；说出它们各自的状态维数、观测维数、滤波器类型；解释为什么同一辆车会有三种不同的“世界系/速度”含义。
+说出单板 PnP 的 6DoF 和整车状态的差别；解释为什么单帧的车心/半径不可靠；画出 <code>detector → PnP → 关联 → 滤波</code> 的链；说出三套代码各自把什么当观测。
 </div>
 
-<h2>1. 同一辆车，三种“状态摆放”</h2>
+<h2>1. 先看一帧：四个角点能告诉我们什么</h2>
 
-<p>三套代码都假设目标是一个刚体，4 块（前哨站 3 块）装甲板按固定角度分布：</p>
+<p>相机看到一块装甲板的四个角。角点的像素坐标是 detector 给的；装甲板的宽高是已知的（大板/小板）。把这两样东西交给 PnP，解出的是<strong>这块板在相机系里的 6DoF 位姿</strong>：</p>
 
-<pre class="formula">p_i = c + R(θ) · ( -r_i cosφ_i, -r_i sinφ_i, Δz_i )
-φ_i = i · 2π / N</pre>
+<pre class="formula">T_i = [ R_i, p_i ]        # 板中心 p_i，板姿态 R_i
+P_ij = T_i · P̄_j          # 四个角 P̄_j 投到相机系</pre>
+
+<p>但自瞄要的是整辆车。车心和板心的关系是刚体几何：</p>
+
+<pre class="formula">p_i = c + R(θ) · u_i
+u_i = ( -r_i cosφ_i, -r_i sinφ_i, Δz_i )
+φ_i = i · 2π/N            # N=4 普通车，N=3 前哨站</pre>
 
 <figure>
 <img src="../assets/figures/armor_geometry.png" alt="Armor layout for N=4 and N=3">
-<figcaption>N=4 与 N=3 的装甲板布局。<code>p_i</code> 在车心到装甲板的方向上取负号，是因为 θ 定义为“装甲板朝向车心”的方向；不同代码的符号约定略有差异，读代码时要先确认。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+<figcaption>四块板/三块板在车体系里的固定布局。<code>r_i</code> 是板心到车心的半径，<code>Δz_i</code> 是高度差；<code>θ</code> 是整车 yaw。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
 </figure>
+
+<p>把一帧里的角色分清楚：</p>
 
 <table>
-<tr><th>项目</th><th>状态</th><th>维数</th><th>姿态</th><th>速度的含义</th></tr>
-<tr><td>sp</td><td><code>[x,vx,y,vy,z,vz,θ,ω,r,l,h]</code></td><td>11</td><td>单 yaw</td><td>相对云台（世界原点在云台）</td></tr>
-<tr><td>wuhan</td><td><code>[cx,vcx,cy,vcy,cz,vcz,rot_z,ω,log r1,log r2,h,rot_y,rot_x]</code></td><td>13</td><td>SO(3)</td><td>绝对 odom；瞄准前减云台速度</td></tr>
-<tr><td>SHtech</td><td><code>[y,vy,x,vx,z,vz,θ,ω,r,l,h]</code></td><td>11</td><td>单 yaw</td><td>相对 IMU（世界原点在 IMU）</td></tr>
+<tr><th>层</th><th>输入</th><th>输出</th><th>它不知道什么</th></tr>
+<tr><td>detector</td><td>图像</td><td>四个角点的像素、板别</td><td>深度、姿态、车心</td></tr>
+<tr><td>PnP</td><td>四角 + 板尺寸</td><td>单板 6DoF：<code>p_i, R_i</code></td><td>车心、半径、速度、角速度</td></tr>
+<tr><td>tracker</td><td>多帧单板位姿</td><td>车状态 <code>c, v, θ, ω, r, h</code></td><td>目标下一步怎么机动</td></tr>
 </table>
 
-<p>注意 SHtech 的状态顺序是 <code>y</code> 在前，不是 <code>x</code> 在前。这不是小事：它的 <code>H</code> 矩阵列顺序、<code>R</code> 的 XY 块都跟着这个顺序走。</p>
+<p>detector、PnP、tracker 是三件事。把 PnP 的输出直接叫“车的位置”，后面的滤波和选板都会跟着错。</p>
 
-<h2>2. 三条时间轴</h2>
+<h2>2. 单帧 PnP 的 6DoF 不是车状态</h2>
+
+<p>PnP 给的是板心 <code>p_i</code> 和板法向。由几何式反推车心：</p>
+
+<pre class="formula">c = p_i - R(θ) · u_i</pre>
+
+<p>看起来只差一个减法，但 <code>θ、r_i、Δz_i</code> 并不都是已知的：</p>
+
+<ul>
+<li>板法向能给出 <code>θ + φ_i</code>，但 PnP 的法向有双解、有噪声；</li>
+<li><code>r_i</code> 随车型变化，前后板与左右板还不一定相同；</li>
+<li><code>Δz_i</code> 也不一定为 0，前哨站尤其如此。</li>
+</ul>
+
+<p>如果半径已知、板别已知、法向可信，单板确实能反推一个 <code>c</code>；但实际条件下，这个 <code>c</code> 的误差会被半径误差和法向误差放大。更稳的做法是把 <code>r_i</code> 也放进状态，用多帧运动约束去估：</p>
+
+<pre class="formula">x = [ c, v, θ, ω, r1, r2, h ]</pre>
+
+<p>这就是“单帧 PnP”与“整车状态”的差别：PnP 是观测，状态是滤波器要估的东西。</p>
+
+<div class="box mathbox"><span class="label">数值后验</span>
+0.5 px 角点噪声、6 m 距离：PnP 深度平均绝对误差约 <strong>4.1%</strong>（约 <strong>247 mm</strong>）；yaw 标准差约 <strong>1.45°</strong>。忽略装甲板 15° 俯仰时，解出的 yaw 偏 <strong>−3.7°</strong>、深度偏 <strong>+3.5%</strong>。这些误差直接进滤波器，所以 <code>R</code> 不能拍脑袋。
+</div>
 
 <figure>
-<img src="../assets/figures/timeline.png" alt="Three prediction timelines">
-<figcaption>三条链路都在算同一个 <code>t_hit = t_now + latency + T_fly</code>，但 sp/wuhan 用不动点迭代，SHtech 只算一次。图由 <code>assets/make_course_figures.py</code> 生成。</figcaption>
+<img src="../assets/figures/pnp_depth_noise.png" alt="PnP depth error vs distance">
+<figcaption>单目 PnP 的深度误差随距离增长。远处板在图像里只占几十像素，深度方向的分辨率天然差；这是“为什么不能完全信单帧 PnP”的直接原因。图由 <code>verify/verify_pnp.py</code> 生成。</figcaption>
 </figure>
 
-<p>把时间轴拆开看：</p>
+<p>还有一个容易被忽略的点：平面 PnP 天然有<strong>两个解</strong>。两个解都能把四个角重投影得很好，但姿态可能差很多。工程上要用“正面朝相机”、装甲板 15° 俯仰先验、时间连续性来选：</p>
 
-<pre class="formula">sp:     frame t_k → track(t_k) → t_now → +delay → t_fire → +T_fly(iterate) → t_hit
-wuhan:  frame t_k → track → buffer → 1kHz predict(t_now) → +T_fly(iterate)+delay → t_hit
-SHtech: frame t_k → track → t_now → +(now-t_k)+latency+T_fly(one shot) → t_hit</pre>
+<pre class="formula">200 次 0.5px 噪声：IPPE 全部给出双解，且两解都“正面”
+裸 solvePnP 选错镜像支：80/200，旋转误差 23.39°
+加 15° pitch 先验后：旋转误差 6.63°</pre>
 
-<p>“迭代”不是强迫症：<code>T_fly</code> 取决于命中点，命中点又取决于 <code>T_fly</code>。目标横向速度 4 m/s 时，一次近似可能差几厘米；迭代 2–3 次就收敛到毫米级。</p>
+<p>这不是 PnP 实现错了，而是平面目标的几何多解。先验和时序一致性是观测层的一部分。</p>
 
-<h2>3. sp_vision_25：PnP 球坐标 + 11 维 EKF</h2>
+<h2>3. 三套代码怎么把观测变成状态</h2>
 
-<pre class="formula">观测 z = [ atan2(y,x), atan2(z,√(x²+y²)), √(x²+y²+z²), θ_i ]
+<p>三套代码的差别，首先在“拿什么当观测”。它们都没有直接把“车心”送进滤波器，而是各自选了一种测量：</p>
 
-H = blkdiag(J_ypd, 1) · J_geom
+<table>
+<tr><th>项目</th><th>观测 <code>z</code></th><th>状态</th><th>为什么这样选</th></tr>
+<tr><td>sp</td><td>PnP 后转球坐标：<code>[yaw, pitch, distance, armor_yaw]</code></td><td>11D：<code>[x,vx,y,vy,z,vz,θ,ω,r,l,h]</code></td><td><code>yaw/pitch/d</code> 和云台角直接对应，<code>H</code> 可解析；代价是 PnP 深度噪声直接进 <code>R</code></td></tr>
+<tr><td>wuhan</td><td>灯条端点的图像投影：每条灯条 4 维 <code>[angle, cx, cy, len]</code></td><td>13D：<code>[c, v, R(3), ω, log r1, log r2, h]</code></td><td>绕开 PnP 的深度/姿态误差，单灯条也能用；代价是投影非线性强，<code>H</code> 要数值求</td></tr>
+<tr><td>SHtech</td><td>PnP 后转直角坐标：<code>[y_a, x_a, z_a, θ_a]</code></td><td>11D：<code>[y,vy,x,vx,z,vz,θ,ω,r,l,h]</code></td><td><code>H</code> 简单，<code>R</code> 的各向异性好构造；代价是同样吃 PnP 噪声</td></tr>
+</table>
 
-J_geom 的非零块：
-  ∂p/∂c = I
-  ∂p/∂θ = ( r sinθ, -r cosθ, 0 )
-  ∂p/∂r = ( -cosθ, -sinθ, 0 )
-  ∂p/∂l = ( -cosθ, -sinθ, 0 )   (仅 i=1,3)
-  ∂p/∂h = ( 0, 0, 1 )           (仅 i=1,3)</pre>
+<p>注意 SHtech 的状态顺序是 <code>y</code> 在前，不是 <code>x</code> 在前。它的 <code>H</code> 列顺序、<code>R</code> 的 XY 块都跟着这个顺序走；读代码时先对齐顺序，再看公式。</p>
 
-<p>它的更新是标准 EKF：在 <code>x⁻</code> 处解析线性化，一次更新。优点是快、可解释；缺点是 PnP 的深度/姿态噪声直接进滤波器，靠经验 <code>R</code> 压。</p>
+<p>把三套代码的观测链摊开：</p>
 
-<p>代码：<code>target.cpp:187</code>（update）、<code>target.cpp:280</code>（H）、<code>aimer.cpp:32</code>（预测+不动点）。</p>
+<pre class="formula">sp:      corners → solvePnP → [yaw,pitch,d,armor_yaw] → EKF
+wuhan:   corners → 灯条端点 → 投影残差 → ESKF（批量、迭代 5 次）
+SHtech:  corners → solvePnP → [y_a,x_a,z_a,θ_a] → IESEKF</pre>
 
-<h2>4. wuhan：SO(3) ESKF + 灯条图像投影</h2>
+<p>它们的状态维数不同，但都在做同一件事：用“当前状态下的板应该在哪”去解释“传感器看到的板在哪”。</p>
 
-<pre class="formula">状态 x = [c, v, rot(3), ω, log r1, log r2, h]
+<h2>4. 关联：四块板怎么对应到同一辆车</h2>
 
-预测：
-  c ← c + v dt
-  R ← R · Exp([0,0,ω dt])
+<p>一帧里可能看到 0 块、1 块、2 块、4 块板。看到多块时，要先回答“这块板属于哪辆车、是几号板”，否则滤波器会把两块板的位置混在一起。</p>
 
-观测（每条灯条 4 维）：
-  T_armor = T_car · T_armor_in_car
-  u = π(K, D, T_cam⁻¹ T_armor P)
-  z = [ atan2(Δu_x, Δu_y), center_x, center_y, ||Δu|| ]</pre>
+<ul>
+<li><strong>sp</strong>：按装甲板 ID/类型和跟踪器里的目标匹配，选最近的板；<code>tracker.cpp</code> 里维护目标列表。</li>
+<li><strong>wuhan</strong>：<code>armor_target.cpp:508</code> 用四边形的形状/位置代价做匹配，再决定这一帧哪些灯条属于同一辆车。</li>
+<li><strong>SHtech</strong>：<code>predict_closest_armor()</code> 用预测位置找最近板；它的几何展开和 <code>h()</code> 在同一个 ID 上差 180°（<code>p_i = h_{i+2}</code>），但四块板的<strong>集合</strong>相同，Hausdorff 只有 0.62 mm；实际瞄准按“最近板”选点不受影响，受影响的是 <code>armor_index</code>/开火 ID 的一致性。</li>
+</ul>
 
-<p>它不在 PnP 位姿上滤波，而是把“当前状态下的装甲板灯条应该投到哪”和“实际检测到的灯条端点”做残差。好处是：单灯条也能用、不被 PnP 深度噪声带偏；坏处是：投影非线性强，<code>H</code> 只能数值求，计算量大。</p>
+<p>关联错了，后面的滤波会“看起来很正常地”跟错板。工程上通常加三道保险：</p>
 
-<p>更新是批量的：一帧里所有装甲板 × 两条灯条 + 单板深度差，拼成一个大的 <code>z/h/H/R</code>，迭代 5 次。姿态用右乘注入：<code>R ← R·Exp(δθ)</code>。</p>
+<pre class="formula">1. 门控：新观测和预测位置差太远 → 丢掉
+2. 代价：形状、ID、朝向、时间连续性一起打分
+3. 滞回：锁定一块板后，不因为一帧抖动就换板</pre>
 
-<p>代码：<code>motion_model.hpp:181</code>（预测）、<code>:260</code>（UVL 观测）、<code>armor_target.cpp:345</code>（更新）、<code>very_aimer.cpp:224</code>（命中点）。</p>
+<h2>5. 这一层留给下一层什么</h2>
 
-<h2>5. SHtech：双模型 + 策略切换</h2>
+<p>观测层的输出不是“一个点”，而是一组带不确定度的状态和关联结果：</p>
 
-<pre class="formula">装甲板模型：4 个独立 2D KF
-  state = [p, v]
-  A = [[1,dt],[0,1]], H=[1,0]
-  Q = q [[dt⁴/4, dt³/2],[dt³/2, dt²]]
+<pre class="formula">给滤波器的：
+  z, R                  # 这一帧测到了什么，有多准
+  association           # 这块板属于哪辆车、几号板
+  x0, P0                # 初始化：第一帧/第一组多板
+  quality               # 遮挡、双解、距离、板别是否可信</pre>
 
-整车模型：11 维 IESEKF
-  x = [y,vy,x,vx,z,vz,θ,ω,r,l,h]
-  z = [y_a,x_a,z_a,θ_a]
-  H 由 ∂p/∂c、∂p/∂θ、∂p/∂r、∂p/∂l、∂p/∂h 组成</pre>
+<p>下一节才回答：有了这些观测，怎么把状态推到 <code>t_hit</code>，以及为什么需要 EKF/ESKF/IEKF 这些不同的线性化。</p>
 
-<p>它按 <code>|ω|</code> 分三档：</p>
+<div class="box pitfall"><span class="label">常见误区</span>
+“PnP 解出了板中心，所以车心就是板中心减半径。”只有在半径、板别、法向都可信时才成立。单帧 PnP 的深度误差、平面双解、半径未知，任何一个都会让这个减法偏几十厘米。
+</div>
 
-<pre class="formula">|ω| < 0.7          → 装甲板模型（低速平移）
-0.7 ≤ |ω| ≤ 2.7    → 两套都更新（过渡）
-|ω| > 2.7          → 整车模型（高速旋转）</pre>
-
-<p>低速时整车模型对“只平移不旋转”不敏感，容易把平移误估成旋转；高速时装甲板模型又跟不上换板。双模型 + 迟滞是最工程化的折中。</p>
-
-<p>代码：<code>Tracker.cpp:106</code>（track）、<code>:578</code>（EKF 初始化）、<code>:887</code>（模型选择）、<code>Planner.cpp:109</code>（4 种策略）。</p>
-
-<h2>6. 三个“为什么”</h2>
-
-<h3>为什么 sp 用球坐标，SHtech 用直角坐标？</h3>
-<p>球坐标的 <code>[yaw,pitch,d]</code> 与“云台要转多少”直接对应，弹道解算只需要 <code>d</code> 和 <code>z</code>；直角坐标的 <code>H</code> 更简单，<code>R</code> 的各向异性也更容易用 <code>u_r/u_t</code> 构造。两者没有绝对优劣，取决于你更想让哪一段“线性”。</p>
-
-<h3>为什么 wuhan 要直接在图像上匹配？</h3>
-<p>因为 PnP 在远距离、斜视角、单板遮挡时深度/姿态噪声很大。图像残差是“传感器原始测量”，不会把 PnP 的错误先验放大；代价是投影模型非线性、计算重。</p>
-
-<h3>为什么 SHtech 要两套模型？</h3>
-<p>因为“整车旋转模型”和“装甲板平移模型”的适用区间不同。用一个模型硬扛全速度段，必然在某一端翻车；两套模型 + 切换，是把“模型选择”显式化。</p>
-
-<h2>7. 三问自检</h2>
+<h2>6. 三问自检</h2>
 
 <div class="quiz" data-answer="b">
-<p class="q">1. 哪套代码的状态包含完整 SO(3) 姿态？</p>
-<button data-choice="a" data-why="sp 只估单个 yaw。">sp_vision_25</button>
-<button data-choice="b" data-why="wuhan 的 rot_x/rot_y/rot_z 是 SO(3) 旋转向量。">wuhan</button>
-<button data-choice="c" data-why="SHtech 只估单个 yaw。">SHtech</button>
+<p class="q">1. 单帧 PnP 对一块装甲板，直接给出的是什么？</p>
+<button data-choice="a" data-why="车心需要半径/板别/法向，单帧 PnP 不直接给。">车心和速度</button>
+<button data-choice="b" data-why="四角 + 已知尺寸解出的是这块板的 6DoF 位姿。">这块板的 6DoF 位姿</button>
+<button data-choice="c" data-why="角速度要靠多帧滤波，PnP 不给。">整车角速度</button>
 <div class="feedback"></div>
 </div>
 
 <div class="quiz" data-answer="c">
-<p class="q">2. 哪套代码的观测不是 PnP 位姿，而是灯条端点的图像投影？</p>
-<button data-choice="a" data-why="sp 是 PnP 后转球坐标。">sp_vision_25</button>
-<button data-choice="b" data-why="SHtech 是 PnP 后转直角坐标。">SHtech</button>
-<button data-choice="c" data-why="wuhan 的 UVLMeasure 直接投影灯条端点。">wuhan</button>
+<p class="q">2. wuhan 为什么不用 PnP 位姿，而把灯条端点投到图像上？</p>
+<button data-choice="a" data-why="投影模型并不比 PnP 简单，反而更难。">因为投影计算更简单</button>
+<button data-choice="b" data-why="它仍然需要相机内参和外参。">因为不需要相机标定</button>
+<button data-choice="c" data-why="图像残差绕开 PnP 的深度/姿态噪声，单灯条也能用。">为了绕开 PnP 深度噪声</button>
 <div class="feedback"></div>
 </div>
 
 <div class="quiz" data-answer="a">
-<p class="q">3. 哪套代码按 <code>|ω|</code> 在“装甲板模型/整车模型”之间切换？</p>
-<button data-choice="a" data-why="SHtech 的 tracker_model_select() 用 0.7/2.7 两个阈值。">SHtech</button>
-<button data-choice="b" data-why="sp 没有双模型切换。">sp_vision_25</button>
-<button data-choice="c" data-why="wuhan 只有前哨站 Voter，没有双模型。">wuhan</button>
+<p class="q">3. 单帧“车心/半径”不可靠，最直接的补救是什么？</p>
+<button data-choice="a" data-why="把半径放进状态，用多帧运动约束和多板关联一起估。">多帧 + 半径先验/状态估计</button>
+<button data-choice="b" data-why="多迭代 PnP 不能消除平面双解和深度噪声。">把 PnP 迭代更多次</button>
+<button data-choice="c" data-why="换更长的镜头会改变视角，不解决几何多解。">换一个更长焦的镜头</button>
 <div class="feedback"></div>
 </div>
 
 <div class="lesson-nav">
 <a href="0003-noise-covariance-nis.html">← 上一课：噪声</a>
-<a href="0005-ekf-eskf-iekf.html">下一课：EKF/ESKF/IEKF →</a>
+<a href="0005-ekf-eskf-iekf.html">下一课：预测到命中时刻 →</a>
 </div>
 
 <div class="footer">
-完整公式、代码行号、横向对比表在主报告 <code>三项目自瞄预测对照.md</code>。数值验证在 <code>verify/</code>。
+数值实验：<code>verify/verify_pnp.py</code>、<code>verify/verify_projects.py</code>；完整代码行号见主报告 <code>三项目自瞄预测对照.md</code>。
 </div>
 
 </div>

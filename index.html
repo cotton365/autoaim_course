@@ -11,8 +11,8 @@
 
 <p class="kicker">Course · RoboMaster Auto-Aim Prediction</p>
 <h1>自瞄预测课<br><span style="font-size:.62em;color:#6d6a64;font-weight:400">从 KF/PnP 到三套 RoboMaster 代码</span></h1>
-<p class="lede">一套“能落到代码变量名”的短课：先补 KF/PnP/噪声，再把 sp_vision_25、wuhan、SHtech 三套预测链路拆开对照，最后用数值实验验证每个结论。</p>
-<p class="meta"><span>6 节 + 1 补充</span><span>5 张速查卡</span><span>5 组数值后验</span><span>主报告：Markdown</span></p>
+<p class="lede">一套“能落到代码变量名”的短课：先补 KF/PnP/噪声，再按“机械/观测 → 预测 → 时间/开火 → 多板决策”四层拆开三套代码，最后用数值实验验证每个结论。</p>
+<p class="meta"><span>7 节 + 1 补充</span><span>5 张速查卡</span><span>5 组数值后验</span><span>主报告：Markdown</span></p>
 
 <div class="box win"><span class="label">先看这个</span>
 如果你只想快速对照三套代码，直接读 <a href="三项目自瞄预测对照.md">《三项目自瞄预测对照》</a>。
@@ -25,16 +25,17 @@
 <div class="card"><span class="tag">01b · 补充</span><h3><a href="lessons/0001b-covariance.html">协方差：定义、矩阵、椭圆</a></h3><p>从高中期望/方差推到 P=E[(x−μ)(x−μ)ᵀ]。</p></div>
 <div class="card"><span class="tag">02 · 基础</span><h3><a href="lessons/0002-pnp-and-frames.html">PnP：从四个像素到世界坐标</a></h3><p>针孔模型、solvePnP、重投影、yaw 搜索、15° 俯仰。</p></div>
 <div class="card"><span class="tag">03 · 基础</span><h3><a href="lessons/0003-noise-covariance-nis.html">噪声：Q/R、马氏距离、NIS</a></h3><p>导航例子算 K/P⁺，再解释 Q/R、NIS 和自瞄误差来源。</p></div>
-<div class="card"><span class="tag">04 · 项目</span><h3><a href="lessons/0004-three-pipelines.html">三套预测链路</a></h3><p>同一骨架的三种参数化：11D EKF / 13D ESKF / 双模型。</p></div>
-<div class="card"><span class="tag">05 · 深入</span><h3><a href="lessons/0005-ekf-eskf-iekf.html">EKF → ESKF → IEKF</a></h3><p>三种线性化、SO(3) 注入、IEKF 先验项。</p></div>
-<div class="card"><span class="tag">06 · 深入</span><h3><a href="lessons/0006-ballistic-and-time.html">弹道与时间对齐</a></h3><p>抛物线/阻力弹道、飞行时间不动点、提前量误差。</p></div>
+<div class="card"><span class="tag">04 · 观测层</span><h3><a href="lessons/0004-three-pipelines.html">机械与观测：从四角到车状态</a></h3><p>单板 PnP 的 6DoF、车心/半径的可观测性、关联与初始化。</p></div>
+<div class="card"><span class="tag">05 · 预测层</span><h3><a href="lessons/0005-ekf-eskf-iekf.html">预测：状态怎么走到 t_hit</a></h3><p>状态转移、Q/R、EKF/ESKF/IEKF 各自修什么故障。</p></div>
+<div class="card"><span class="tag">06 · 时间层</span><h3><a href="lessons/0006-ballistic-and-time.html">时间与开火：命中时刻不是开火时刻</a></h3><p>弹道、飞行时间不动点、云台到位与开火窗口。</p></div>
+<div class="card"><span class="tag">07 · 决策层</span><h3><a href="lessons/0007-plate-selection.html">多板决策：打哪一块，先打哪一块</a></h3><p>p_hit、t_aim、t_window；分数、门限与滞回。</p></div>
 </div>
 
 <h2>三条并行线</h2>
 <table>
 <tr><th>线</th><th>内容</th><th>入口</th></tr>
 <tr><td>A · 基础</td><td>KF / 协方差 / PnP / 噪声</td><td><a href="lessons/0001-kf-from-gaussian.html">Lesson 1</a> · <a href="lessons/0001b-covariance.html">1b</a> · 2–3</td></tr>
-<tr><td>B · 项目</td><td>三套链路对照 + 代码行号</td><td><a href="三项目自瞄预测对照.md">主报告</a> + <a href="lessons/0004-three-pipelines.html">Lesson 4</a></td></tr>
+<tr><td>B · 项目</td><td>四层链路 + 三套代码行号</td><td><a href="三项目自瞄预测对照.md">主报告</a> + <a href="lessons/0004-three-pipelines.html">Lesson 4–7</a></td></tr>
 <tr><td>C · 后验</td><td>脚本、图、数值结论</td><td><a href="verify/kf_report.md">KF 报告</a> · <a href="verify/pnp_report.md">PnP 报告</a> · <a href="verify/projects_report.md">项目报告</a></td></tr>
 </table>
 
@@ -66,7 +67,7 @@
 ├── index.html                     ← 课程首页
 ├── README.md                      ← 同样的说明（Markdown）
 ├── 三项目自瞄预测对照.md           ← 主报告
-├── lessons/0001–0006 + 0001b.html   ← 六节课 + 协方差补充
+├── lessons/0001–0007 + 0001b.html   ← 七节课 + 协方差补充
 ├── reference/*.html               ← 速查卡
 ├── assets/course.css, quiz.js     ← 样式与测验
 ├── assets/figures/*.png           ← 所有图

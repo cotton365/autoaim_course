@@ -12,7 +12,7 @@
 
 ---
 
-## 1. 学习路径（6 个主课 + 1 个补充，每节 25–30 分钟）
+## 1. 学习路径（7 个主课 + 1 个补充，每节 25–35 分钟）
 
 | 顺序 | 课 | 你会得到什么 | 先修 |
 |---|---|---|---|
@@ -20,12 +20,15 @@
 | 1b | [补充：协方差：定义、矩阵、椭圆](./lessons/0001b-covariance.html) | 能说清 `P=E[(x−μ)(x−μ)ᵀ]`、椭圆、`A P Aᵀ` | 高中期望/方差 |
 | 2 | [PnP：从四个像素到世界坐标](./lessons/0002-pnp-and-frames.html) | 能解释 `solvePnP`、重投影、yaw 搜索、15° 俯仰 | 针孔模型、旋转矩阵 |
 | 3 | [噪声：Q/R、马氏距离、NIS](./lessons/0003-noise-covariance-nis.html) | 用导航例子算 `K/P⁺`，解释 Q/R、NIS 与自瞄误差 | [0001b 协方差](./lessons/0001b-covariance.html) |
-| 4 | [三套预测链路：同一骨架的三种参数化](./lessons/0004-three-pipelines.html) | 能画出三套代码的流程图并对照 | 1–3 |
-| 5 | [EKF → ESKF → IEKF：三种线性化](./lessons/0005-ekf-eskf-iekf.html) | 能解释 SO(3) 注入、迭代更新、先验项 | 1、3 |
-| 6 | [弹道与时间对齐：不动点迭代](./lessons/0006-ballistic-and-time.html) | 能推导抛物线/阻力弹道、解释提前量 | 1、2 |
+| 4 | [机械与观测：从四角到车状态](./lessons/0004-three-pipelines.html) | 能说清单板 PnP 的 6DoF、车心/半径的可观测性、关联与初始化 | 2 |
+| 5 | [预测：状态怎么走到 t_hit](./lessons/0005-ekf-eskf-iekf.html) | 能写状态转移、解释 EKF/ESKF/IEKF 各修什么故障 | 1、3、4 |
+| 6 | [时间与开火：命中时刻不是开火时刻](./lessons/0006-ballistic-and-time.html) | 能推导弹道、解释飞行时间不动点、开火窗口 | 2、5 |
+| 7 | [多板决策：打哪一块，先打哪一块](./lessons/0007-plate-selection.html) | 能定义 `p_hit/t_aim/t_window`，写出选板分数与门限 | 5、6 |
 
 每节课的结构固定：**一个可验收的小目标 → 几何/概率直觉 → 公式 → 代码位置 → 数值例子 → 3 道检索题**。
 题目答案不在页面上直接给出，点选项会立即反馈。
+
+4–7 按同一根链走：**观测层 → 预测层 → 时间/开火层 → 决策层**。每一层都先问“这一层要解决什么问题”，再看三套代码各自怎么应对；不按项目逐个讲。
 
 ---
 
@@ -35,7 +38,7 @@
 
 ```text
 线 A：基础课        lessons/0001–0003
-线 B：项目对照      lessons/0004 + 三项目自瞄预测对照.md
+线 B：四层链路      lessons/0004–0007 + 三项目自瞄预测对照.md
 线 C：数值后验      verify/ + assets/figures/
 ```
 
@@ -60,7 +63,8 @@ autoaim_course/
 │   ├── 0003-noise-covariance-nis.html
 │   ├── 0004-three-pipelines.html
 │   ├── 0005-ekf-eskf-iekf.html
-│   └── 0006-ballistic-and-time.html
+│   ├── 0006-ballistic-and-time.html
+│   └── 0007-plate-selection.html
 ├── reference/
 │   ├── kf-cheatsheet.html
 │   ├── pnp-cheatsheet.html
